@@ -68,14 +68,14 @@ const HomeScreen = () => {
         await AsyncStorage.getItem("driverId");
   
       console.log(
-        "📦 STORED DRIVER ID:",
+        " STORED DRIVER ID:",
         storedDriverId
       );
   
       if (!storedDriverId) {
   
         console.log(
-          "❌ DRIVER ID NOT FOUND"
+          " DRIVER ID NOT FOUND"
         );
   
         return;
@@ -87,7 +87,7 @@ const HomeScreen = () => {
       if (!parsedId) {
   
         console.log(
-          "❌ INVALID DRIVER ID"
+          " INVALID DRIVER ID"
         );
   
         return;
@@ -96,7 +96,7 @@ const HomeScreen = () => {
       setDriverId(parsedId);
   
       console.log(
-        "✅ CONNECTING DRIVER:",
+        " CONNECTING DRIVER:",
         parsedId
       );
   
@@ -105,7 +105,7 @@ const HomeScreen = () => {
     } catch (error) {
   
       console.error(
-        "❌ initializeDriver error:",
+        " initializeDriver error:",
         error
       );
     }
@@ -194,16 +194,16 @@ const HomeScreen = () => {
 
     try {
   
-      // 📍 ask permission
+      //  ask permission
       const { status } =
         await Location.requestForegroundPermissionsAsync();
   
       if (status !== "granted") {
-        console.log("❌ Location permission denied");
+        console.log(" Location permission denied");
         return;
       }
   
-      // 📍 get current location
+      //  get current location
       const location =
         await Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.High,
@@ -215,7 +215,7 @@ const HomeScreen = () => {
       const longitude =
         location.coords.longitude;
   
-      console.log("📍 DRIVER LOCATION:", {
+      console.log(" DRIVER LOCATION:", {
         latitude,
         longitude,
       });
