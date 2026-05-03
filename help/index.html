@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+
+<html lang="en">
+  <head>
+    <meta http-equiv="content-type" content="text/html; charset=UTF-8" />
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="chrome=1" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+
+    <title>
+      Fika ride sharing
+    </title>
+
+    <!-- CSS style -->
+    <link rel="stylesheet" type="text/css" href="assets/css/global.css" />
+    <link
+      rel="stylesheet"
+      type="text/css"
+      href="assets/css/fontello.css"
+      media="all"
+    />
+    <link
+      rel="stylesheet"
+      type="text/css"
+      href="assets/js/google-code-prettify/prettify.css"
+    />
+
+    <!-- Google web fonts -->
+    <link
+      href="http://fonts.googleapis.com/css?family=Open+Sans:400,300,300italic,400italic,600,600italic,700,700italic,800"
+      rel="stylesheet"
+      type="text/css"
+    />
+
+    <!-- jQuery -->
+    <script type="text/javascript" src="assets/js/jquery.js"></script>
+    <script type="text/javascript" src="assets/js/globals.js"></script>
+    <script
+      type="text/javascript"
+      src="assets/js/google-code-prettify/prettify.js"
+    ></script>
+
+    <style type="text/css">
+      img {
+        max-width: 800px;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Header -->
+    <header>
+      <div class="container">
+        <div class="logo">
+          Fika ridesharing
+        </div>
+        <div class="slogan">Fabulous UI in React Native(Expo)</div>
+      </div>
+    </header>
+
+    <!-- Container -->
+    <div class="container">
+      <div class="author">
+        Created: <strong>22/09/2025</strong><br />
+        Last Update: <strong>22/09/2026</strong><br />
+        By:
+        <strong
+          ><a
+            href="https://codecanyon.net/user/rendercodetechnology/portfolio"
+            target="_blank"
+            >RenderCodeTechnology</a
+          ></strong
+        ><br />
+        Profile:
+        <strong
+          ><a
+            href="https://codecanyon.net/user/rendercodetechnology"
+            target="_blank"
+            >www.codecanyon.net.com/user/rendercodetechnology</a
+          ></strong
+        ><br />
+        E-mail:
+        <strong
+          ><a href="mailto:rendercodetechnology@gmail.com"
+            >rendercodetechnology@gmail.com</a
+          ></strong
+        ><br />
+      </div>
+      <p>&nbsp;</p>
+
+      <h2 class="alt">Table of Contents</h2>
+      <ol class="alpha">
+        <li><a href="#basic">Basic Information</a></li>
+        <li><a href="#file">Directories & File Uses</a></li>
+        <li><a href="#map">About Google Map Configuration</a></li>
+        <li><a href="#question">Still have a question?</a></li>
+        <li><a href="#contact">Contact US</a></li>
+      </ol>
+
+      <hr />
+      <h3 id="basic">A) Basic Information</h3>
+
+      <ul>
+        <li>
+          <b>Environment Setup</b> - Please visit this link and setup Expo CLI
+          <a
+            href="https://reactnative.dev/docs/environment-setup"
+            target="_blank"
+            >https://reactnative.dev/docs/environment-setup</a
+          >
+        </li>
+        <li>
+          <b>Run our app with Expo</b> - Open <b>rn-GoPoolar</b> folder on your
+          selected IDE (VSCode is Recommended). Then follow below step.
+        </li>
+        <ul>
+          <li>Run <b>npm install</b> command in terminal.</li>
+          <p><b>Note: </b>If you get error in <b>npm install</b> then please try <b>yarn install</b> or<b>npm install --legacy-peer-deps</b>.</p>
+          <li>Run <b>npm start</b> or <b>expo start</b> command in terminal.</li>
+          <li>
+            After above command Expo start metro server and open webpage. In
+            this webpage you get QR code. You can scan that QR Code in
+            <b>Expo Client</b> App. Congratulation, Your app run successfully.
+          </li>
+        </ul>
+        <li>
+          For more detail please visit this link<a
+            href="https://docs.expo.io/workflow/expo-cli/"
+            target="_blank"
+            >https://docs.expo.io/workflow/expo-cli/</a
+          >
+        </li>
+        <li>
+          <b>Build & Release App</b>-
+          <span
+            ><a
+              href="https://docs.expo.dev/build/introduction/"
+              target="_blank"
+              >https://docs.expo.dev/build/introduction/</a
+            ></span
+          >
+        </li>
+      </ul>
+
+      <hr />
+      <h3 id="file">B) Directories & File Uses</h3>
+
+      <ul>
+        <li>
+          <b>assets(Folder)</b> - Put all Static images & fonts in this folder
+        </li>
+        <img src="img/assets.jpg" />
+        <li>
+          <b>components(Folder)</b> - Contain Loading Screen & Bottom Navigation Bar in this
+          folder.
+        </li>
+        <img src="img/bottom-navigation-bar.jpg" />
+        <li><b>constants(Folder)</b> - Put common style file in this folder</li>
+        <li><b>screens(Folder)</b> - Contain all screens in this folder</li>
+        <img src="img/screens.jpg" />
+      </ul>
+
+      <hr />
+
+      <h3 id="map">C) About Google Map Configuration</h3>
+      <p>You need Google Map Api key for Accessing Google Map.</p>
+
+      <ul>
+        <li>Put that api key in 2 places in our code.</li>
+        <ol type="123">
+          <li>
+            <b>rn-GoPoolar/constants/key.js</b> line
+            number 2. (Please refer below image)
+          </li>
+          <img src="img/key.jpg" />
+          <li>
+            <b>rn-GoPoolar/app.json</b> line
+            number 31. (Please refer below image)
+          </li>
+          <img src="img/google-map-api-key.jpg" />
+        </ol>
+      </ul>
+
+      <hr />
+
+      <h3 id="question">D) Still Have a Question?</h3>
+
+      <p>
+        Please mail us on
+        <span
+          ><b
+            ><a href="mailto:rendercodetechnology@gmail.com"
+              >rendercodetechnology@gmail.com</a
+            ></b
+          ></span
+        >
+      </p>
+
+      <hr />
+
+      <h3 id="contact">E) Contact US</h3>
+
+      <p>
+        If you have any kind of problem with this code then please mail us on
+        <span
+          ><b
+            ><a href="mailto:rendercodetechnology@gmail.com"
+              >rendercodetechnology@gmail.com</a
+            ></b
+          ></span
+        >
+      </p>
+
+      <p>
+        If you have any project in flutter then please contact us. We are
+        experiance flutter developer team and build high quality apps for
+        android and ios.
+      </p>
+      <hr />
+
+      <p>
+        Once again, thank you so much for purchasing this item. As I said at the
+        beginning, I'd be glad to help you if you have any questions relating to
+        this item. No guarantees, but I'll do my best to assist. If you have a
+        more general question relating to the application on Codecanyon, you
+        might consider visiting the forums and asking your question in the "Item
+        Discussion" section.
+      </p>
+
+      <a href="https://codecanyon.net/downloads" target="_blank"
+        ><img src="img/review.jpg" width="100%"
+      /></a>
+    </div>
+
+    <!-- Social profiles -->
+    <footer>
+      <div class="container" style="color: #ffffff">
+        Feel Free To Contact Us
+        <span
+          ><a href="mailto:rendercodetechnology@gmail.com"
+            >rendercodetechnology@gmail.com</a
+          ></span
+        >
+      </div>
+    </footer>
+
+    <!-- Go to top arrow -->
+    <div class="totop">
+      <div class="gototop">
+        <div class="arrowgototop"></div>
+      </div>
+    </div>
+  </body>
+</html>
