@@ -180,3 +180,13 @@ import os
 os.environ['PATH'] = r'C:\OSGeo4W\bin' + os.environ['PATH']
 GDAL_LIBRARY_PATH = r'C:\OSGeo4W\bin\gdal313.dll'
 GEOS_LIBRARY_PATH = r'C:\OSGeo4W\bin\geos_c.dll'
+
+import os
+
+# Static files configurations
+STATIC_URL = '/static/'
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+
+# Media asset upload storage configurations
+MEDIA_URL = '/media/'
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
