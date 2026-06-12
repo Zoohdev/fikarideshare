@@ -6,7 +6,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenRefreshView
 from django.utils import timezone
 
-from .models import User, BiometricCredential
+from .models import User
 from .serializers import (
     UserRegistrationSerializer,
     UserLoginSerializer,
