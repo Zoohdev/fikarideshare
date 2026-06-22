@@ -208,55 +208,45 @@ TEMPLATES = [
 ]
 
 
-import os
-
-
-#Fallback paths for Windows GeoDjango
-
-
-# os.environ['PATH'] = r'C:\OSGeo4W\bin' + os.environ['PATH']
-# GDAL_LIBRARY_PATH = r'C:\OSGeo4W\bin\gdal313.dll'
-# GEOS_LIBRARY_PATH = r'C:\OSGeo4W\bin\geos_c.dll'
-
-
-import os
-
-
-# Static files configurations
-STATIC_URL = '/static/'
-STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
-
-
-# Media asset upload storage configurations
-MEDIA_URL = '/media/'
-MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
-# os.environ['PATH'] = r'C:\OSGeo4W\bin' + os.environ['PATH']
-# GDAL_LIBRARY_PATH = r'C:\OSGeo4W\bin\gdal313.dll'
-# GEOS_LIBRARY_PATH = r'C:\OSGeo4W\bin\geos_c.dll'
+# GeoDjango GDAL/GEOS library paths - Windows dev only. Linux/production
+# never reaches this branch (GDAL/GEOS are installed as system libraries
+# there), so this has no effect on hosting.
+#
+# Per-developer overrides go in your own untracked .env (never hardcode a
+# personal path here) - see .env.example for GDAL_LIBRARY_PATH,
+# GEOS_LIBRARY_PATH, OSGEO4W_ROOT, PROJ_LIB, GDAL_DATA. If none are set, we
+# auto-detect a standard OSGeo4W install instead of assuming one person's
+# username/folder layout.
 if os.name == 'nt':
-    # This points directly to your verified folder on the desktop
-    osgeo_bin = r'C:\Users\china\AppData\Local\Programs\OSGeo4W\bin'
-   
-    if os.path.exists(osgeo_bin):
-        # 1. Inject the bin directory to Windows system search paths
-        os.environ['PATH'] = osgeo_bin + os.pathsep + os.environ['PATH']
-       
-        # 2. Dynamically look inside your folder for whatever version of gdal was downloaded
-        gdal_dlls = glob.glob(os.path.join(osgeo_bin, "gdal*.dll"))
-        geos_dlls = glob.glob(os.path.join(osgeo_bin, "geos_c.dll"))
-       
-        if gdal_dlls:
-            GDAL_LIBRARY_PATH = gdal_dlls[0]
-            print(f"✅ Successfully linked local GDAL: {GDAL_LIBRARY_PATH}")
-           
-        if geos_dlls:
-            GEOS_LIBRARY_PATH = geos_dlls[0]
-           
-        # 3. Define dataset paths inside your true folder structure
-        os.environ['PROJ_LIB'] = r'C:\Users\china\OneDrive\Desktop\OSGeo4W\share\proj'
-        os.environ['GDAL_DATA'] = r'C:\Users\china\OneDrive\Desktop\OSGeo4W\share\gdal'
-    else:
-        print(f"❌ Path verification failed: Couldn't find folder at {osgeo_bin}")
+    GDAL_LIBRARY_PATH = config('GDAL_LIBRARY_PATH', default='') or None
+    GEOS_LIBRARY_PATH = config('GEOS_LIBRARY_PATH', default='') or None
+
+    if not (GDAL_LIBRARY_PATH and GEOS_LIBRARY_PATH):
+        osgeo_candidates = filter(None, [
+            config('OSGEO4W_ROOT', default=''),
+            r'C:\OSGeo4W',
+            os.path.join(os.path.expanduser('~'), 'AppData', 'Local', 'Programs', 'OSGeo4W'),
+        ])
+
+        for osgeo_root in osgeo_candidates:
+            osgeo_bin = os.path.join(osgeo_root, 'bin')
+            gdal_dlls = glob.glob(os.path.join(osgeo_bin, 'gdal*.dll'))
+            geos_dlls = glob.glob(os.path.join(osgeo_bin, 'geos_c.dll'))
+
+            if gdal_dlls and geos_dlls:
+                os.environ['PATH'] = osgeo_bin + os.pathsep + os.environ['PATH']
+                GDAL_LIBRARY_PATH = GDAL_LIBRARY_PATH or gdal_dlls[0]
+                GEOS_LIBRARY_PATH = GEOS_LIBRARY_PATH or geos_dlls[0]
+                os.environ['PROJ_LIB'] = config('PROJ_LIB', default=os.path.join(osgeo_root, 'share', 'proj'))
+                os.environ['GDAL_DATA'] = config('GDAL_DATA', default=os.path.join(osgeo_root, 'share', 'gdal'))
+                print(f"GeoDjango: linked GDAL/GEOS from {osgeo_bin}")
+                break
+        else:
+            print(
+                "GeoDjango: no local OSGeo4W install auto-detected. If PostGIS "
+                "features fail, set GDAL_LIBRARY_PATH/GEOS_LIBRARY_PATH (or "
+                "OSGEO4W_ROOT) in your own .env - see .env.example."
+            )
 
 
 
