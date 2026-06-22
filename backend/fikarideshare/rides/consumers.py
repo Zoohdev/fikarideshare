@@ -586,23 +586,6 @@ class LocationConsumer(AsyncWebsocketConsumer):
     @database_sync_to_async
     def calculate_eta(self, ride, driver_lat, driver_lng):
 
-        service = DriverLocationService()
-
-        eta = service.get_eta_between_points(
-            origin_lat=driver_lat,
-            origin_lng=driver_lng,
-            destination_lat=ride.pickup_location.y,
-            destination_lng=ride.pickup_location.x
-        )
-
-        if not eta:
-            return None
-
-        return round(eta["eta_seconds"] / 60)
-
-    @database_sync_to_async
-    def calculate_eta(self, ride, driver_lat, driver_lng):
-
         distance_meters = geodesic(
             (driver_lat, driver_lng),
             (ride.pickup_location.y, ride.pickup_location.x)

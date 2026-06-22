@@ -728,7 +728,7 @@ class TriggerSOSAlertView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, ride_id):
-        ride = get_object_or_404(SharedRideGroup, id=ride_id)
+        ride = get_object_or_404(Ride, id=ride_id)
         
         
         reporter_type = 'driver' if ride.driver == request.user else 'rider'

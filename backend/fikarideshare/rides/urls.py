@@ -11,7 +11,8 @@ from .views import (
     PublicTrackingAPIView,
     public_tracking_page,
     AcceptPoolRequestAPIView,
-    DeclinePoolRequestAPIView
+    DeclinePoolRequestAPIView,
+    TriggerSOSAlertView
 )
 
 # 1. Initialize the automatic router for your ModelViewSet
@@ -33,6 +34,9 @@ urlpatterns = [
     path("trips/<uuid:ride_id>/share/",CreateRideShareLinkAPIView.as_view(),name="share"),
 
     path("public-track/<uuid:token>/",PublicTrackingAPIView.as_view(),name="public_track"),
+
+    # Matches the frontend's api.post(`/rides/pool/${rideId}/sos/`) call
+    path("pool/<uuid:ride_id>/sos/", TriggerSOSAlertView.as_view(), name='trigger_sos'),
 
     path("track/<uuid:token>/",public_tracking_page,name="public_tracking_page"),
     path(
