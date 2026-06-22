@@ -1,5 +1,6 @@
 from django.contrib.auth.base_user import BaseUserManager
-
+from django.contrib.gis.measure import D
+from django.contrib.gis.db.models.functions import Distance
 class UserManager(BaseUserManager):
     """
     Custom user model manager where email is the unique identifier
@@ -36,3 +37,24 @@ class UserManager(BaseUserManager):
             raise ValueError('Superuser must have is_superuser=True.')
 
         return self.create_user(email, phone_number, first_name, last_name, password, **extra_fields)
+    
+    
+    # def get_available_drivers(self, point, radius_km):
+    #     """
+    #     Filters for drivers who are online, active, and within the radius.
+    #     """
+
+    #     drivers=self.filter(
+    #         user_type__in=['driver', 'both'],
+    #         is_online=True,
+    #         # Checks if the driver's current_location is within the radius (km)
+    #         current_location__distance_lte=(point, D(km=radius_km))
+    #     ).distinct()
+    #     print(f"DEBUG: Found {drivers.count()} drivers for point {point}")
+    #     return drivers
+    def get_available_drivers(self, point, radius_km):
+        return self.filter(
+            user_type='driver',         # Ensure this matches your field
+            is_online=True,             # Essential for availability
+            current_location__distance_lte=(point, D(km=radius_km))
+        )

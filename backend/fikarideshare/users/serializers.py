@@ -206,7 +206,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
             'total_ratings', 'is_driver', 'is_verified', 'created_at'
         ]
         read_only_fields = [
-            'id', 'email', 'kyc_status', 'average_rating',
+            'id', 'email', 'phone_number','kyc_status', 'average_rating',
             'total_ratings', 'created_at'
         ]
 

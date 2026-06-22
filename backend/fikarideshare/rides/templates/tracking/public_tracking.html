@@ -1,0 +1,70 @@
+{% load static %}
+<!DOCTYPE html>
+<html>
+<head>
+
+<meta charset="utf-8">
+
+<meta
+name="viewport"
+content="width=device-width, initial-scale=1">
+
+<title>Live Trip Tracking</title>
+
+<link
+rel="stylesheet"
+href="{% static 'tracking/tracking.css' %}">
+
+<script>
+const TOKEN="{{ token }}";
+</script>
+
+<script
+src="https://maps.googleapis.com/maps/api/js?key={{ GOOGLE_MAPS_API_KEY }}">
+</script>
+
+</head>
+
+<body>
+
+<div id="header">
+
+<h2>Live Ride Tracking</h2>
+
+{% comment %} <div id="ride-status">
+Loading...
+</div> {% endcomment %}
+
+</div>
+
+<div id="map"></div>
+
+<div id="info-card">
+
+    <h3>Status</h3>
+    <p id="ride-status"></p>
+    
+    <h3>ETA</h3>
+    <p id="eta"></p>
+    
+    <h3>Pickup</h3>
+    <p id="pickup-address"></p>
+    
+    <h3>Destination</h3>
+    <p id="dropoff-address"></p>
+    
+    <h3>Driver</h3>
+    <p id="driver-name"></p>
+    
+    <h3>Vehicle</h3>
+    <p id="vehicle-model"></p>
+    <p id="vehicle-number"></p>
+    
+    </div>
+
+<script
+src="{% static 'tracking/tracking.js' %}">
+</script>
+
+</body>
+</html>

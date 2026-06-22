@@ -27,7 +27,7 @@ class KYCSubmitAndStatusView(APIView):
     def post(self, request):
         serializer = KYCVerificationSerializer(data=request.data, context={'request': request})
         if serializer.is_valid():
-            verification = serializer.save()
+            verification = serializer.save(user=request.user)
            
             # --- CELERY ASYNC WORKER TRIGGER POINT ---
             # process_kyc_verification_task.delay(verification.id)
@@ -71,7 +71,7 @@ class DriverLicenseSubmitView(APIView):
            
         serializer = DriverLicenseSerializer(data=request.data, context={'request': request})
         if serializer.is_valid():
-            license_record = serializer.save()
+            license_record = serializer.save(user=request.user)
             return Response(
                 {
                     "message": "Driver license submitted successfully for verification validation.",

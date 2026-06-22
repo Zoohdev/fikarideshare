@@ -22,7 +22,11 @@ class KYCVerificationSerializer(serializers.ModelSerializer):
             'liveness_check_passed', 'rejection_reasons',
             'created_at', 'completed_at',
         ]
-        read_only_fields = fields
+        # read_only_fields = fields
+        read_only_fields = [
+            'id', 'status', 'document_check_passed', 'facial_similarity_passed',
+            'liveness_check_passed', 'rejection_reasons', 'created_at', 'completed_at'
+        ]
 
 
 class KYCWebhookSerializer(serializers.Serializer):

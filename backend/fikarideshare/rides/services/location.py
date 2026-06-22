@@ -22,7 +22,8 @@ class GoogleMapsService:
    
     def __init__(self):
         self.api_key = settings.GOOGLE_MAPS_API_KEY
-        self.base_url = '[maps.googleapis.com](https://maps.googleapis.com/maps/api)'
+        # self.base_url = '[maps.googleapis.com](https://maps.googleapis.com/maps/api)'
+        self.base_url = 'https://maps.googleapis.com/maps/api'
    
     def geocode(self, address: str) -> Optional[Dict]:
         """
@@ -121,7 +122,9 @@ class GoogleMapsService:
                     'duration_in_traffic_seconds': leg.get(
                         'duration_in_traffic', leg['duration']
                     )['value'],
-                    'polyline': route['overview_polyline']['encoded'],
+                    # 'polyline': route['overview_polyline']['encoded'],
+                    'polyline': route['overview_polyline']['points'],
+
                     'steps': [
                         {
                             'instruction': step['html_instructions'],
@@ -135,6 +138,13 @@ class GoogleMapsService:
                     'start_address': leg['start_address'],
                     'end_address': leg['end_address'],
                 }
+            else:
+                # ADD THESE 3 LINES TO REVEAL THE ERROR
+                print("\n=== GOOGLE MAPS API FAILED ===")
+                print(f"Status: {data.get('status')}")
+                print(f"Error: {data.get('error_message', 'No specific message')}\n")
+        else:
+            print(f"HTTP ERROR {response.status_code}: {response.text}")
         return None
    
     def get_distance_matrix(

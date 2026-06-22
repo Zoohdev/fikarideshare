@@ -1,13 +1,22 @@
 import os
+import sys
+from unittest.mock import MagicMock
 from pathlib import Path
 from datetime import timedelta
 from decouple import config
+import glob
+from dotenv import load_dotenv
+
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+load_dotenv(os.path.join(BASE_DIR, '.env'))
+
 
 SECRET_KEY = config('SECRET_KEY')
 DEBUG = config('DEBUG', default=False, cast=bool)
 ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='').split(',')
+GOOGLE_MAPS_API_KEY = os.environ.get('GOOGLE_MAPS_API_KEY')
 
 # Application definition
 INSTALLED_APPS = [
@@ -21,7 +30,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'django.contrib.gis',  # GeoDjango for PostGIS
+    # 'django.contrib.gis',  # GeoDjango for PostGIS
    
     # Third-party
     'rest_framework',
@@ -41,6 +50,7 @@ INSTALLED_APPS = [
     'kyc.apps.KycConfig',
 ]
 
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',  # Must be first
     'django.middleware.security.SecurityMiddleware',
@@ -52,10 +62,13 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
+
 ROOT_URLCONF = 'config.urls'
+
 
 # Custom user model
 AUTH_USER_MODEL = 'users.User'
+
 
 # Database configuration with PostGIS
 DATABASES = {
@@ -69,6 +82,7 @@ DATABASES = {
     }
 }
 
+
 # Redis cache configuration
 CACHES = {
     'default': {
@@ -80,8 +94,11 @@ CACHES = {
     }
 }
 
+
 # Django Channels configuration
 ASGI_APPLICATION = 'config.asgi.application'
+
+
 CHANNEL_LAYERS = {
     'default': {
         'BACKEND': 'channels_redis.core.RedisChannelLayer',
@@ -90,6 +107,10 @@ CHANNEL_LAYERS = {
         },
     },
 }
+# CELERY_TASK_ALWAYS_EAGER = True
+# CELERY_TASK_EAGER_PROPAGATES_EXCEPTIONS = True
+CELERY_TASK_ALWAYS_EAGER = False
+CELERY_TASK_EAGER_PROPAGATES = False
 
 # REST Framework configuration
 REST_FRAMEWORK = {
@@ -109,6 +130,7 @@ REST_FRAMEWORK = {
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
 }
 
+
 # JWT configuration
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
@@ -119,36 +141,46 @@ SIMPLE_JWT = {
     'AUTH_TOKEN_CLASSES': ('rest_framework_simplejwt.tokens.AccessToken',),
 }
 
+
 # Celery configuration
-CELERY_BROKER_URL = config('REDIS_URL', default='redis://127.0.0.1:6379/0')
-CELERY_RESULT_BACKEND = config('REDIS_URL', default='redis://127.0.0.1:6379/0')
+CELERY_BROKER_URL = config('REDIS_URL', default='redis://127.0.0.1:6379/2')
+CELERY_RESULT_BACKEND = config('REDIS_URL', default='redis://127.0.0.1:6379/2')
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
+
 
 # External API keys
 STRIPE_SECRET_KEY = config('STRIPE_SECRET_KEY', default='')
 STRIPE_PUBLISHABLE_KEY = config('STRIPE_PUBLISHABLE_KEY', default='')
 STRIPE_WEBHOOK_SECRET = config('STRIPE_WEBHOOK_SECRET', default='')
 
+
 GOOGLE_MAPS_API_KEY = config('GOOGLE_MAPS_API_KEY', default='')
+
 
 ONFIDO_API_TOKEN = config('ONFIDO_API_TOKEN', default='')  # KYC provider
 DEKRA_API_KEY = config('DEKRA_API_KEY', default='')
 DEKRA_API_URL = config('DEKRA_API_URL', default='[api.dekra.com](https://api.dekra.com/v1)')
 
+
 # CORS settings
-CORS_ALLOWED_ORIGINS = [
-    'http://localhost:3000',
-    'http://localhost:8081',
-]
+# CORS_ALLOWED_ORIGINS = [
+#     'http://localhost:3000',
+#     'http://localhost:8081',
+# ]
+# CORS_ALLOW_CREDENTIALS = True
+
+CORS_ALLOW_ALL_ORIGINS = True  
 CORS_ALLOW_CREDENTIALS = True
+
 
 # Static and media files
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+
 
 # Security settings (production)
 if not DEBUG:
@@ -157,6 +189,7 @@ if not DEBUG:
     CSRF_COOKIE_SECURE = True
     SECURE_HSTS_SECONDS = 31536000
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+
 
 TEMPLATES = [
     {
@@ -174,19 +207,58 @@ TEMPLATES = [
     },
 ]
 
+
 import os
+
 
 #Fallback paths for Windows GeoDjango
-os.environ['PATH'] = r'C:\OSGeo4W\bin' + os.environ['PATH']
-GDAL_LIBRARY_PATH = r'C:\OSGeo4W\bin\gdal313.dll'
-GEOS_LIBRARY_PATH = r'C:\OSGeo4W\bin\geos_c.dll'
+
+
+# os.environ['PATH'] = r'C:\OSGeo4W\bin' + os.environ['PATH']
+# GDAL_LIBRARY_PATH = r'C:\OSGeo4W\bin\gdal313.dll'
+# GEOS_LIBRARY_PATH = r'C:\OSGeo4W\bin\geos_c.dll'
+
 
 import os
+
 
 # Static files configurations
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
+
 # Media asset upload storage configurations
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+# os.environ['PATH'] = r'C:\OSGeo4W\bin' + os.environ['PATH']
+# GDAL_LIBRARY_PATH = r'C:\OSGeo4W\bin\gdal313.dll'
+# GEOS_LIBRARY_PATH = r'C:\OSGeo4W\bin\geos_c.dll'
+if os.name == 'nt':
+    # This points directly to your verified folder on the desktop
+    osgeo_bin = r'C:\Users\china\AppData\Local\Programs\OSGeo4W\bin'
+   
+    if os.path.exists(osgeo_bin):
+        # 1. Inject the bin directory to Windows system search paths
+        os.environ['PATH'] = osgeo_bin + os.pathsep + os.environ['PATH']
+       
+        # 2. Dynamically look inside your folder for whatever version of gdal was downloaded
+        gdal_dlls = glob.glob(os.path.join(osgeo_bin, "gdal*.dll"))
+        geos_dlls = glob.glob(os.path.join(osgeo_bin, "geos_c.dll"))
+       
+        if gdal_dlls:
+            GDAL_LIBRARY_PATH = gdal_dlls[0]
+            print(f"✅ Successfully linked local GDAL: {GDAL_LIBRARY_PATH}")
+           
+        if geos_dlls:
+            GEOS_LIBRARY_PATH = geos_dlls[0]
+           
+        # 3. Define dataset paths inside your true folder structure
+        os.environ['PROJ_LIB'] = r'C:\Users\china\OneDrive\Desktop\OSGeo4W\share\proj'
+        os.environ['GDAL_DATA'] = r'C:\Users\china\OneDrive\Desktop\OSGeo4W\share\gdal'
+    else:
+        print(f"❌ Path verification failed: Couldn't find folder at {osgeo_bin}")
+
+
+
+
+

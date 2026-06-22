@@ -1,8 +1,11 @@
 import uuid
 from decimal import Decimal
 from django.contrib.gis.db import models
+from django.conf import settings
 from django.contrib.gis.geos import Point, LineString
+from datetime import timedelta
 from django.core.validators import MinValueValidator, MaxValueValidator
+from django.utils import timezone
 
 
 class Ride(models.Model):
@@ -14,6 +17,11 @@ class Ride(models.Model):
     class Status(models.TextChoices):
         REQUESTED = 'requested', 'Requested'
         SEARCHING = 'searching', 'Searching for Driver'
+        INVITED = 'invited'
+        ACCEPTED = 'accepted'
+        WAITING_PICKUP = 'waiting_pickup'
+        DECLINED = 'declined',
+        PICKED_UP = 'picked_up'
         DRIVER_ASSIGNED = 'driver_assigned', 'Driver Assigned'
         DRIVER_ARRIVING = 'driver_arriving', 'Driver Arriving'
         ARRIVED = 'arrived', 'Driver Arrived'
@@ -85,7 +93,8 @@ class Ride(models.Model):
     estimated_duration_seconds = models.PositiveIntegerField(null=True, blank=True)
     actual_distance_meters = models.PositiveIntegerField(null=True, blank=True)
     actual_duration_seconds = models.PositiveIntegerField(null=True, blank=True)
-   
+    verification_code = models.CharField(max_length=4, null=True, blank=True)
+    
     # Pricing
     vehicle_type_requested = models.CharField(
         max_length=20,
@@ -138,7 +147,7 @@ class Ride(models.Model):
    
     # Cancellation info
     cancellation_reason = models.CharField(
-        max_length=20,
+        max_length=225,
         choices=CancellationReason.choices,
         blank=True
     )
@@ -152,6 +161,11 @@ class Ride(models.Model):
    
     # Additional data
     passenger_count = models.PositiveIntegerField(default=1)
+    available_seats = models.PositiveIntegerField(
+    default=3)
+    pool_open = models.BooleanField(
+    default=True
+)
     notes = models.TextField(blank=True)  # Special instructions
    
     class Meta:
@@ -167,6 +181,12 @@ class Ride(models.Model):
     def __str__(self):
         return f'Ride {self.id} - {self.status}'
    
+    def save(self, *args, **kwargs):
+        if not self.verification_code:
+            import random
+            self.verification_code = str(random.randint(1000, 9999))
+        super().save(*args, **kwargs)
+
     @property
     def is_active(self):
         return self.status in [
@@ -197,11 +217,19 @@ class RideParticipant(models.Model):
     """
    
     class Status(models.TextChoices):
-        INVITED = 'invited', 'Invited'
-        ACCEPTED = 'accepted', 'Accepted'
-        DECLINED = 'declined', 'Declined'
-        PICKED_UP = 'picked_up', 'Picked Up'
-        DROPPED_OFF = 'dropped_off', 'Dropped Off'
+        REQUESTED = 'requested', 'Requested'
+        PENDING ='pending','Pending'
+        SEARCHING = 'searching', 'Searching for Driver'
+        INVITED = 'invited'
+        ACCEPTED = 'accepted'
+        WAITING_PICKUP = 'waiting_pickup'
+        DECLINED = 'declined',
+        PICKED_UP = 'picked_up'
+        DRIVER_ASSIGNED = 'driver_assigned', 'Driver Assigned'
+        DRIVER_ARRIVING = 'driver_arriving', 'Driver Arriving'
+        ARRIVED = 'arrived', 'Driver Arrived'
+        IN_PROGRESS = 'in_progress', 'In Progress'
+        COMPLETED = 'completed', 'Completed'
         CANCELLED = 'cancelled', 'Cancelled'
    
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -229,12 +257,15 @@ class RideParticipant(models.Model):
     pickup_address = models.TextField()
     dropoff_location = models.PointField(geography=True, srid=4326)
     dropoff_address = models.TextField()
-   
+    estimated_distance_meters = models.PositiveIntegerField(null=True, blank=True)
+    estimated_fare_contribution = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    pickup_code = models.CharField(max_length=6, blank=True, null=True)
     # Fare split
     fare_percentage = models.DecimalField(
-        max_digits=5,
-        decimal_places=2,
-        validators=[MinValueValidator(Decimal('0.00')), MaxValueValidator(Decimal('100.00'))]
+        max_digits=5, 
+        decimal_places=2, 
+        null=True,  # 👈 Allows database to accept empty values
+        blank=True  # 👈 Allows Django forms/serializers to accept empty values
     )
     fare_amount = models.DecimalField(
         max_digits=10,
@@ -267,6 +298,14 @@ class RideParticipant(models.Model):
     responded_at = models.DateTimeField(null=True, blank=True)
     picked_up_at = models.DateTimeField(null=True, blank=True)
     dropped_off_at = models.DateTimeField(null=True, blank=True)
+    pickup_code = models.CharField(
+        max_length=4,
+        null=True,
+        blank=True
+    )
+    joined_at = models.DateTimeField(
+        auto_now_add=True
+    )
    
     class Meta:
         db_table = 'ride_participants'
@@ -278,6 +317,12 @@ class RideParticipant(models.Model):
    
     def __str__(self):
         return f'{self.user.email} - {self.ride}'
+    
+    def save(self, *args, **kwargs):
+        if not self.pickup_code:
+            import random
+            self.pickup_code = str(random.randint(1000, 9999))
+        super().save(*args, **kwargs)
 
 
 class RideLocation(models.Model):
@@ -311,3 +356,76 @@ class RideLocation(models.Model):
     def __str__(self):
         return f'Location for Ride {self.ride_id} at {self.recorded_at}'
 
+class ChatMessage(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    ride = models.ForeignKey(Ride, on_delete=models.CASCADE, related_name='messages')
+    sender = models.ForeignKey('users.User', on_delete=models.CASCADE)
+    message = models.TextField()
+    timestamp = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'ride_chat_messages'
+        ordering = ['timestamp']
+
+class EmergencySOS(models.Model):
+    """
+    Tracks active crisis events triggered by drivers or passengers.
+    """
+    class TriggeredBy(models.TextChoices):
+        DRIVER = 'driver', 'Driver'
+        RIDER = 'rider', 'Rider'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    ride = models.ForeignKey('rides.Ride', on_delete=models.PROTECT, related_name='sos_alerts')
+    reporter = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    reporter_type = models.CharField(max_length=10, choices=TriggeredBy.choices)
+    
+    # Crisis State Tracking
+    is_active = models.BooleanField(default=True)
+    triggered_at = models.DateTimeField(auto_now_add=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    
+    # Audio Evidence Storage Directory Reference
+    audio_recording_vault = models.FileField(upload_to='sos_evidence_audios/', blank=True, null=True)
+
+    class Meta:
+        db_table = 'emergency_sos_alerts'
+
+
+def default_expiry():
+    return timezone.now() + timedelta(days=1)
+
+class RideShareLink(models.Model):
+    ride = models.OneToOneField(
+        Ride,
+        on_delete=models.CASCADE,
+        related_name="share_link"
+    )
+
+    token = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True
+    )
+
+    expires_at = models.DateTimeField(
+    default=default_expiry
+    )
+
+    view_count = models.IntegerField(
+        default=0
+    )
+
+    is_active = models.BooleanField(
+        default=True
+    )
+
+    created_by = models.ForeignKey(
+    settings.AUTH_USER_MODEL,
+    on_delete=models.CASCADE,
+    related_name="created_share_links",
+    null=True,
+    blank=True,
+)
+
+    def __str__(self):
+        return str(self.token)

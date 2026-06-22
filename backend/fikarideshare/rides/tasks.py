@@ -1,9 +1,11 @@
 from celery import shared_task
 from django.utils import timezone
+from channels.layers import get_channel_layer
 from datetime import timedelta
-
+from asgiref.sync import async_to_sync
 from .models import Ride
 from .services.ride import RideService
+from users.models import User
 
 
 @shared_task(bind=True, max_retries=5, default_retry_delay=30)
@@ -26,36 +28,48 @@ def find_and_assign_driver(self, ride_id: str):
     service = RideService()
    
     # Get list of drivers who declined this ride
-    declined_drivers = list(
-        ride.driver_requests.filter(
-            status='declined'
-        ).values_list('driver_id', flat=True)
-    )
+    # declined_drivers = list(
+    #     ride.driver_requests.filter(
+    #         status='declined'
+    #     ).values_list('driver_id', flat=True)
+    # )
    
     # Find available driver
-    driver = service.find_available_driver(
-        ride=ride,
-        exclude_drivers=[str(d) for d in declined_drivers]
-    )
-   
+    # driver = service.find_available_driver(
+    #     ride=ride,
+    #     exclude_drivers=[str(d) for d in declined_drivers]
+    # )
+    # # ADD THIS INSTEAD:
+    driver = service.find_available_driver(ride=ride, exclude_drivers=[])
+    print("Found driver:",driver)
     if driver:
-        # Send ride request to driver
-        send_ride_request_to_driver.delay(str(ride.id), str(driver.id))
-    else:
-        # No drivers available, retry or cancel
-        if self.request.retries < self.max_retries:
-            raise self.retry()
-        else:
-            # Cancel ride - no drivers available
-            service.update_ride_status(
-                ride=ride,
-                new_status=Ride.Status.CANCELLED,
-                actor=ride.rider,
-                data={
-                    'reason': Ride.CancellationReason.NO_DRIVERS,
-                    'note': 'No drivers available in your area',
+        print("ENTERED DRIVER BLOCK")
+        # Keep ride state as searching, but ping the target driver directly via WebSockets
+        channel_layer = get_channel_layer()
+        async_to_sync(channel_layer.group_send)(
+            f"user_{driver.id}",
+            {
+                "type": "new_ride_request",
+                "data": {
+                    "ride_id": str(ride.id),
+                    "pickup_address": ride.pickup_address,
+                    "dropoff_address": ride.dropoff_address,
+                    "fare": float(ride.final_fare or ride.estimated_fare or 0),
+                    "pickup_lat": ride.pickup_location.y,
+                    "pickup_lng": ride.pickup_location.x,
+                    "dropoff_lat": ride.dropoff_location.y,
+                    "dropoff_lng": ride.dropoff_location.x,
+                    "distance_meters": ride.estimated_distance_meters,
                 }
-            )
+            }
+        )
+        print(f"SENDING TO GROUP: user_{driver.id}")
+        print({
+            "type": "new_ride_request",
+            "data": {
+                "ride_id": str(ride.id)
+            }
+})
 
 
 @shared_task
@@ -93,6 +107,8 @@ def send_ride_request_to_driver(ride_id: str, driver_id: str):
         }
     )
    
+    print(f"DEBUG: Attempting to send to user_{driver_id}")
+   
     # Schedule timeout check
     check_driver_response.apply_async(
         args=[ride_id, driver_id],
@@ -100,21 +116,44 @@ def send_ride_request_to_driver(ride_id: str, driver_id: str):
     )
 
 
+# @shared_task
+# def check_driver_response(ride_id: str, driver_id: str):
+#     """
+#     Check if driver responded to ride request.
+   
+#     If not, mark as declined and find next driver.
+#     """
+#     try:
+#         ride = Ride.objects.get(id=ride_id)
+#     except Ride.DoesNotExist:
+#         return
+   
+#     # If ride is still searching, driver didn't accept
+#     if ride.status == Ride.Status.SEARCHING and str(ride.driver_id) != driver_id:
+#         # Re-trigger driver search
+#         find_and_assign_driver.delay(ride_id)
+
+# tasks.py (Modified)
 @shared_task
 def check_driver_response(ride_id: str, driver_id: str):
     """
     Check if driver responded to ride request.
-   
-    If not, mark as declined and find next driver.
+    If not, mark as declined to avoid matching loops, then find next driver.
     """
     try:
         ride = Ride.objects.get(id=ride_id)
     except Ride.DoesNotExist:
         return
    
-    # If ride is still searching, driver didn't accept
-    if ride.status == Ride.Status.SEARCHING and str(ride.driver_id) != driver_id:
-        # Re-trigger driver search
+    # If ride is still searching, driver didn't accept in time
+    if ride.status == Ride.Status.SEARCHING and (not ride.driver or str(ride.driver_id) != driver_id):
+        # Save timeout as a declined request to prevent matching this driver again
+        # Adjust related_name/model reference to match your Ride/DriverRequest structure
+        ride.driver_requests.update_or_create(
+            driver_id=driver_id,
+            defaults={'status': 'declined'}
+        )
+        # Re-trigger driver search to find the next nearest driver
         find_and_assign_driver.delay(ride_id)
 
 
