@@ -1,0 +1,34 @@
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+fika/
+
+# Django
+backend/fikarideshare/staticfiles/
+backend/fikarideshare/media/
+db.sqlite3
+
+# Redis dumps
+*.rdb
+
+# Node / React Native
+node_modules/
+.expo/
+*.log
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+stripe.exe
