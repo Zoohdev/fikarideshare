@@ -2,9 +2,10 @@ import axios from 'axios';
 import { Alert } from 'react-native';
 
 import * as SecureStore from 'expo-secure-store';
+import { API_BASE_URL } from '../constants/apiConfig';
 // BASE API
 const api = axios.create({
-    baseURL: 'http://192.168.0.112:8000/api', // Your Django server URL
+    baseURL: API_BASE_URL, // Your Django server URL
     timeout: 10000, // 10 seconds timeout
     headers: {
       'Content-Type': 'application/json',
@@ -45,7 +46,7 @@ const api = axios.create({
           }
   
           // 2. Hit the token refresh endpoint (use raw axios to avoid interceptor interference)
-          const response = await axios.post('http://192.168.0.112:8000/api/users/token/refresh/', {
+          const response = await axios.post(`${API_BASE_URL}/users/token/refresh/`, {
             refresh: refreshToken,
           });
   

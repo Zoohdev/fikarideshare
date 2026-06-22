@@ -507,10 +507,11 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import api from "../../services/api";
 import { Key } from "../../constants/key";
 import { MAP_THEME, LIVE_TRACKING_DELTA } from "../../constants/mapTheme";
+import { WS_TRACKING_URL } from "../../constants/apiConfig";
 import AnimatedDriverMarker from "../rideTracking/components/AnimatedDriverMarker";
 
 const GOOGLE_MAPS_API_KEY = Key.apiKey;
-const WS_BASE = "ws://192.168.0.104:8000/ws/tracking/";
+const WS_BASE = WS_TRACKING_URL;
 
 const customMapTheme = MAP_THEME;
 
@@ -668,10 +669,10 @@ const StartRideScreen = () => {
     }
     setVerifying(true);
     try {
-      // FIX: Change 'code' key to 'verification_code' to match Django backend expectations
-      const response = await api.post("/rides/verify-code/", { 
-        ride_id: rideId, 
-        verification_code: code 
+      // Backend's RideVerificationSerializer requires the field to be named 'code'.
+      const response = await api.post("/rides/verify-code/", {
+        ride_id: rideId,
+        code: code
       });
       setVerifying(false);
   

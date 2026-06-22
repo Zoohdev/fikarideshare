@@ -25,12 +25,7 @@ import ETAWidget from "../rideTracking/components/ETAWidget";
 
 import useDriverTracking from "../rideTracking/hooks/useDriverTracking";
 import { MAP_THEME } from "../../constants/mapTheme";
-
-const API_BASE_URL =
-  "http://192.168.0.112:8000";
-
-const WS_BASE_URL =
-  "ws://192.168.0.112:8000";
+import { API_BASE_URL, WS_TRACKING_URL } from "../../constants/apiConfig";
 
 const customMapTheme = MAP_THEME;
 
@@ -118,7 +113,7 @@ export default function PublicTrackingScreen() {
 
       const socket =
         new WebSocket(
-          `${WS_BASE_URL}/ws/tracking/`
+          WS_TRACKING_URL
         );
 
       socket.onopen =

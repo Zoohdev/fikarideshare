@@ -27,9 +27,10 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Location from "expo-location";
 import { Key } from "../../constants/key";
 import { MAP_THEME, LIVE_TRACKING_DELTA } from "../../constants/mapTheme";
+import { API_BASE_URL, WS_BASE_URL } from "../../constants/apiConfig";
 
-const API_BASE = "http://192.168.0.112:8000/api/rides/trips/";
-const WS_BASE = "ws://192.168.0.112:8000/ws/tracking/";
+const API_BASE = `${API_BASE_URL}/rides/trips/`;
+const WS_BASE = `${WS_BASE_URL}/ws/tracking/`;
 const GOOGLE_MAPS_API_KEY = Key.apiKey;
 const CANCELLATION_REASONS = [
   { id: '1', label: 'Change of plans', icon: 'event-busy' },

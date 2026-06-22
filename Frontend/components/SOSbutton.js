@@ -5,9 +5,9 @@ import { Audio } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../services/api'; // Adjust path to your API instance
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { WS_SOS_BASE_URL } from '../constants/apiConfig';
 
-// Adjust to your local testing IP
-const WS_SOS_BASE = 'ws://192.168.0.112:8000/ws/safety/sos/'; 
+const WS_SOS_BASE = WS_SOS_BASE_URL;
 
 export default function SOSButton({ rideId }) {
   const [isEmergencyActive, setIsEmergencyActive] = useState(false);

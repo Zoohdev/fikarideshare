@@ -563,10 +563,11 @@ import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import api from '../../services/api';
 import { Key } from '../../constants/key';
 import { MAP_THEME, LIVE_TRACKING_DELTA } from '../../constants/mapTheme';
+import { WS_TRACKING_URL } from '../../constants/apiConfig';
 import AnimatedDriverMarker from '../rideTracking/components/AnimatedDriverMarker';
 
 const GOOGLE_MAPS_APIKEY = Key.apiKey;
-const WS_BASE = 'ws://192.168.0.104:8000/ws/tracking/';
+const WS_BASE = WS_TRACKING_URL;
 
 const customMapTheme = MAP_THEME;
 

@@ -14,8 +14,9 @@ import {
 import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { WS_BASE_URL } from "../../constants/apiConfig";
 
-const WS_BASE = "ws://192.168.0.112:8000/ws/tracking/";
+const WS_BASE = `${WS_BASE_URL}/ws/tracking/`;
 
 export default function RideChatScreen() {
   const params = useLocalSearchParams();

@@ -62,13 +62,12 @@ import { shareRide } from "./services/shareRide";
 
 import { Key } from "../../constants/key";
 import { MAP_THEME } from "../../constants/mapTheme";
+import { API_BASE_URL, WS_BASE_URL, API_HOST } from "../../constants/apiConfig";
 const GOOGLE_MAPS_API_KEY = Key.apiKey;
 
-const API_BASE =
-  "http://192.168.0.101:8000/api";
+const API_BASE = API_BASE_URL;
 
-const WS_BASE =
-  "ws://192.168.0.101:8000";
+const WS_BASE = WS_BASE_URL;
 
 const { width, height } =
   Dimensions.get("window");
@@ -218,7 +217,7 @@ const getImageUrl = (path) => {
           return path;
         }
       
-        return `http://192.168.0.101:8000${path}`;
+        return `http://${API_HOST}${path}`;
       };
   const fetchRideDetails =
     async () => {

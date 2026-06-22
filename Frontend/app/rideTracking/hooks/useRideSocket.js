@@ -1,7 +1,6 @@
 
 import { useEffect, useRef } from "react";
-
-const WS_BASE_URL = "ws://192.168.0.101:8000";
+import { WS_BASE_URL } from "../../../constants/apiConfig";
 
 const useRideSocket = ({
   rideId,

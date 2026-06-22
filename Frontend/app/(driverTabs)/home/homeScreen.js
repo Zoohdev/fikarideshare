@@ -21,12 +21,12 @@ import Header from "../../../components/header";
 import { Colors, Fonts, Sizes, CommonStyles } from "../../../constants/styles";
 import api from "../../../services/api";
 import { useNavigation, useLocalSearchParams, useRouter } from "expo-router";
+import { API_BASE_URL, WS_BASE_URL } from "../../../constants/apiConfig";
 
 const { width } = Dimensions.get("window");
 
-// Update these configurations to match your network topology
-const API_BASE = "http://192.168.0.112:8000/api/rides"; 
-const WS_BASE = "ws://192.168.0.112:8000/ws/tracking/";
+const API_BASE = `${API_BASE_URL}/rides`;
+const WS_BASE = `${WS_BASE_URL}/ws/tracking/`;
 
 const HomeScreen = () => {
   const navigation = useNavigation();
