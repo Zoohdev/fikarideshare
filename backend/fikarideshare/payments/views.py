@@ -10,6 +10,7 @@ from .serializers import (
     PaymentMethodSerializer, PaymentSerializer,
     WalletSerializer, DriverPayoutSerializer
 )
+from .services import StripeService, PaymentService
 
 class PaymentMethodListCreateView(APIView):
     """
@@ -24,45 +25,96 @@ class PaymentMethodListCreateView(APIView):
 
     def post(self, request):
         serializer = PaymentMethodSerializer(data=request.data, context={'request': request})
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        validated = serializer.validated_data
+        provider_payment_method_id = validated.pop('provider_payment_method_id')
+        method_type = validated.get('method_type', PaymentMethod.MethodType.CARD)
+
+        if method_type != PaymentMethod.MethodType.CARD:
+            return Response(
+                {"error": "Only card payment methods can be added right now."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        success, result = StripeService().attach_payment_method(request.user, provider_payment_method_id)
+        if not success:
+            return Response(result, status=status.HTTP_400_BAD_REQUEST)
+
+        card = result.get('card', {})
+
+        # Default to making the first card the default; otherwise respect the request.
+        is_default = validated.get('is_default')
+        if is_default is None:
+            is_default = not PaymentMethod.objects.filter(user=request.user, is_active=True).exists()
+        if is_default:
+            PaymentMethod.objects.filter(
+                user=request.user, is_active=True, is_default=True
+            ).update(is_default=False)
+
+        payment_method = PaymentMethod.objects.create(
+            user=request.user,
+            method_type=method_type,
+            provider='stripe',
+            provider_payment_method_id=result['id'],
+            display_name=f"{card.get('brand', 'Card').title()} ending in {card.get('last4', '')}",
+            last_four=card.get('last4', ''),
+            brand=card.get('brand', ''),
+            expiry_month=card.get('exp_month'),
+            expiry_year=card.get('exp_year'),
+            is_default=is_default,
+            is_verified=True,
+        )
+
+        return Response(
+            PaymentMethodSerializer(payment_method).data,
+            status=status.HTTP_201_CREATED
+        )
 
 
 class ProcessPaymentView(APIView):
     """
-    Creates a transaction entry for an authorized ride fare calculation.
+    Charges the rider's default saved card for a ride fare (or any ad-hoc
+    amount), via Stripe - authorize and capture in one step.
     """
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        serializer = PaymentSerializer(data=request.data, context={'request': request})
-        if serializer.is_valid():
-            # Business logic: Calculate your platform cut (e.g., 20% commission tier)
-            total_amount = serializer.validated_data['amount']
-            platform_fee = (total_amount * Decimal('0.20')).quantize(Decimal('0.01'))
-            driver_earnings = total_amount - platform_fee
+        amount_raw = request.data.get('amount')
+        currency = request.data.get('currency', 'USD')
+        ride_id = request.data.get('ride_id')
 
-            payment = serializer.save(
-                user=request.user,
-                platform_fee=platform_fee,
-                driver_earnings=driver_earnings,
-                status=Payment.Status.PENDING
-            )
+        if not amount_raw:
+            return Response({"error": "amount is required."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            amount = Decimal(str(amount_raw))
+        except Exception:
+            return Response({"error": "amount must be a valid number."}, status=status.HTTP_400_BAD_REQUEST)
+        if amount <= 0:
+            return Response({"error": "amount must be greater than zero."}, status=status.HTTP_400_BAD_REQUEST)
 
-            # --- GATEWAY INTEGRATION ENGINE DISPATCH ---
-            # run_payment_intent_charge.delay(payment.id)
+        success, result = PaymentService().charge_saved_card(
+            user=request.user,
+            amount=amount,
+            currency=currency,
+            description=f"Ride payment{f' for {ride_id}' if ride_id else ''}",
+            metadata={'ride_id': str(ride_id)} if ride_id else {},
+        )
 
+        if not success:
+            return Response(result, status=status.HTTP_400_BAD_REQUEST)
+
+        if result.get('requires_action'):
             return Response(
-                {
-                    "message": "Payment processing transaction initialized.",
-                    "payment_id": payment.id,
-                    "status": payment.status
-                },
-                status=status.HTTP_201_CREATED
+                {"message": "Additional authentication required.", **result},
+                status=status.HTTP_202_ACCEPTED
             )
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(
+            {"message": "Payment captured.", **result},
+            status=status.HTTP_200_OK
+        )
 
 
 class WalletBalanceAndHistoryView(APIView):
@@ -92,7 +144,24 @@ class WalletTopUpView(APIView):
             return Response({"error": "A positive value amount is required."}, status=status.HTTP_400_BAD_REQUEST)
 
         amount = Decimal(amount_str)
-       
+
+        success, result = PaymentService().charge_saved_card(
+            user=request.user,
+            amount=amount,
+            currency='USD',
+            description='Wallet top-up',
+            metadata={'purpose': 'wallet_topup'},
+        )
+
+        if not success:
+            return Response(result, status=status.HTTP_400_BAD_REQUEST)
+
+        if result.get('requires_action'):
+            return Response(
+                {"message": "Additional authentication required.", **result},
+                status=status.HTTP_202_ACCEPTED
+            )
+
         with transaction.atomic():
             wallet, created = Wallet.objects.select_for_update().get_or_create(user=request.user)
             wallet.balance += amount
@@ -104,6 +173,7 @@ class WalletTopUpView(APIView):
                 source=WalletTransaction.Source.TOPUP,
                 amount=amount,
                 balance_after=wallet.balance,
+                reference_id=result['payment_id'],
                 description="In-app balance top-up payment success."
             )
 

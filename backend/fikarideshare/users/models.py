@@ -63,6 +63,9 @@ class User(AbstractBaseUser, PermissionsMixin):
     )
     total_ratings = models.PositiveIntegerField(default=0)
 
+    # Stripe customer reference (payments.services.StripeService reads/writes this)
+    stripe_customer_id = models.CharField(max_length=255, blank=True, null=True)
+
     # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

@@ -17,19 +17,32 @@ class WalletSerializer(serializers.ModelSerializer):
 class PaymentMethodSerializer(serializers.ModelSerializer):
     """
     Serializer for managing saved funding profiles (Cards, Mobile Money, etc.).
+
+    For cards, the client creates a Stripe PaymentMethod via the Stripe SDK
+    (CardField + createPaymentMethod) and sends only the resulting
+    provider_payment_method_id ("pm_..."). The view attaches it to the
+    user's Stripe customer and fills in display_name/last_four/brand/
+    expiry_* from Stripe's own response - those are never trusted from
+    the client.
     """
+    provider_payment_method_id = serializers.CharField(write_only=True, required=True)
+
     class Meta:
         model = PaymentMethod
         fields = [
             'id', 'method_type', 'provider', 'display_name',
-            'is_default', 'created_at'
+            'last_four', 'brand', 'expiry_month', 'expiry_year',
+            'is_default', 'created_at', 'provider_payment_method_id',
         ]
-        read_only_fields = ['id', 'created_at']
+        read_only_fields = [
+            'id', 'display_name', 'last_four', 'brand',
+            'expiry_month', 'expiry_year', 'created_at',
+        ]
 
     def validate(self, attrs):
         method_type = attrs.get('method_type')
         provider = attrs.get('provider')
-       
+
         if method_type == 'mobile_money' and not provider:
             raise serializers.ValidationError(
                 {"provider": "Provider (e.g., MPESA, AIRTEL) is required for mobile money accounts."}

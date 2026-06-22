@@ -418,4 +418,87 @@ class PaymentService:
                 'status': payment.status
             }
 
+    @transaction.atomic
+    def charge_saved_card(
+        self,
+        user: User,
+        amount: Decimal,
+        currency: str = 'USD',
+        description: str = '',
+        metadata: Dict = None,
+    ) -> Tuple[bool, Dict]:
+        """
+        Authorize-then-immediately-capture the user's default saved card.
+
+        This is the ad-hoc charge path used by ride fare payment and wallet
+        top-up (neither is threaded through the ride-lifecycle
+        authorize/complete/cancel_ride_payment methods above, which depend
+        on a `ride.payment` FK that doesn't exist on the current Ride model).
+        """
+        payment_method = PaymentMethod.objects.filter(
+            user=user, is_active=True, is_default=True
+        ).first()
+
+        if not payment_method:
+            return False, {'error': 'No saved payment method on file. Add a card first.'}
+
+        customer_id = getattr(user, 'stripe_customer_id', None)
+        if not customer_id:
+            return False, {'error': 'No Stripe customer on file. Add a card first.'}
+
+        payment = Payment.objects.create(
+            user=user,
+            payment_method=payment_method,
+            amount=amount,
+            currency=currency,
+            status=Payment.Status.PENDING,
+            description=description,
+            metadata=metadata or {},
+        )
+
+        success, result = self.stripe.create_payment_intent(
+            amount=amount,
+            currency=currency,
+            customer_id=customer_id,
+            payment_method_id=payment_method.provider_payment_method_id,
+            metadata=metadata or {},
+        )
+
+        if not success:
+            payment.status = Payment.Status.FAILED
+            payment.failure_reason = result.get('error', '')
+            payment.save(update_fields=['status', 'failure_reason'])
+            return False, result
+
+        payment.provider_payment_intent_id = result['id']
+
+        if result['status'] == 'requires_action':
+            payment.status = Payment.Status.AUTHORIZED
+            payment.save(update_fields=['provider_payment_intent_id', 'status'])
+            return True, {
+                'payment_id': str(payment.id),
+                'status': payment.status,
+                'requires_action': True,
+                'client_secret': result['client_secret'],
+            }
+
+        capture_success, capture_result = self.stripe.capture_payment(result['id'])
+
+        if not capture_success:
+            payment.status = Payment.Status.AUTHORIZED
+            payment.failure_reason = capture_result.get('error', '')
+            payment.save(update_fields=['status', 'failure_reason'])
+            return False, capture_result
+
+        payment.status = Payment.Status.COMPLETED
+        payment.provider_charge_id = capture_result.get('charge_id', '')
+        payment.completed_at = timezone.now()
+        payment.save(update_fields=['status', 'provider_charge_id', 'completed_at'])
+
+        return True, {
+            'payment_id': str(payment.id),
+            'status': payment.status,
+            'requires_action': False,
+        }
+
 
