@@ -9,7 +9,8 @@ import React, { useEffect, useState } from "react";
 import { Colors, Fonts, Sizes, screenHeight } from "../../constants/styles";
 import MapViewDirections from "react-native-maps-directions";
 import { Key } from "../../constants/key";
-import MapView, { Marker } from "react-native-maps";
+import { MAP_THEME } from "../../constants/mapTheme";
+import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
 import MaterialIcons from "react-native-vector-icons/MaterialIcons";
 import * as Animatable from "react-native-animatable";
 import MyStatusBar from "../../components/myStatusBar";
@@ -295,6 +296,7 @@ const RideMapViewScreen = () => {
     return (
       <View style={{ height: '100%' }}>
         {showMap && <MapView
+          provider={PROVIDER_GOOGLE}
           region={{
             latitude: 22.493643,
             longitude: 88.35588,
@@ -302,7 +304,7 @@ const RideMapViewScreen = () => {
             longitudeDelta: 0.3,
           }}
           style={{ height: "100%" }}
-          mapType="terrain"
+          customMapStyle={MAP_THEME}
           loadingEnabled
           loadingIndicatorColor={Colors.primaryColor}
         >

@@ -19,25 +19,15 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import * as Location from 'expo-location';
 import { Audio } from 'expo-av';
-import api from '../../services/api'; 
+import api from '../../services/api';
+import { Key } from '../../constants/key';
+import { MAP_THEME, LIVE_TRACKING_DELTA } from '../../constants/mapTheme';
+import AnimatedDriverMarker from './components/AnimatedDriverMarker';
 
-const GOOGLE_MAPS_APIKEY = 'AIzaSyAwM10scPwotqO_WRQDYbndfFo4fWbriXA'; 
+const GOOGLE_MAPS_APIKEY = Key.apiKey;
 const WS_BASE = 'ws://192.168.0.112:8000/ws/tracking/';
 
-const customMapTheme = [
-  { "elementType": "geometry", "stylers": [{ "color": "#f5f5f5" }] },
-  { "elementType": "geometry.fill", "stylers": [{ "color": "#fefcfb" }] },
-  { "elementType": "labels.icon", "stylers": [{ "visibility": "off" }] },
-  { "elementType": "labels.text.fill", "stylers": [{ "color": "#616161" }] },
-  { "elementType": "labels.text.stroke", "stylers": [{ "color": "#f5f5f5" }] },
-  { "featureType": "poi", "elementType": "geometry", "stylers": [{ "color": "#eeeeee" }] },
-  { "featureType": "poi", "elementType": "labels.text.fill", "stylers": [{ "color": "#757575" }] },
-  { "featureType": "poi.business", "stylers": [{ "visibility": "off" }] },
-  { "featureType": "poi.park", "elementType": "geometry.fill", "stylers": [{ "color": "#a5ffd6" }, { "saturation": 100 }] },
-  { "featureType": "road", "stylers": [{ "color": "#f7f7f7" }, { "saturation": 100 }] },
-  { "featureType": "road", "elementType": "geometry.fill", "stylers": [{ "color": "#cccccc" }] },
-  { "featureType": "water", "elementType": "geometry.fill", "stylers": [{ "color": "#00b4d8" }] }
-];
+const customMapTheme = MAP_THEME;
 
 export default function RiderInTripScreen() {
   const router = useRouter();
@@ -59,6 +49,7 @@ export default function RiderInTripScreen() {
   const [recordingInstance, setRecordingInstance] = useState(null);
   const mapReadyRef = useRef(false);
   const [routeCoords, setRouteCoords] = useState([]);
+  const [etaMinutes, setEtaMinutes] = useState(null);
 
   useEffect(() => {
     initializeScreen();
@@ -143,6 +134,7 @@ export default function RiderInTripScreen() {
               const newLocation = {
                 latitude: Number(lat),
                 longitude: Number(lng),
+                heading: Number(parsedMessage.heading ?? data.heading) || 0,
               };
           
               setDriverLocation(newLocation);
@@ -306,18 +298,16 @@ export default function RiderInTripScreen() {
           initialRegion={{
             latitude: targetDropoff.latitude || -26.2041,
             longitude: targetDropoff.longitude || 28.0473,
-            latitudeDelta: 0.03,
-            longitudeDelta: 0.03,
+            latitudeDelta: LIVE_TRACKING_DELTA,
+            longitudeDelta: LIVE_TRACKING_DELTA,
           }}
         >
           {/* Driver live vehicle marker - Increased Size */}
           {driverLocation && (
-          <Marker
-            coordinate={driverLocation}
-            image={require("../../assets/images/car-marker-transparent.png")}
-            anchor={{ x: 0.5, y: 0.8 }}
-            flat={true}
-          />
+            <AnimatedDriverMarker
+              coordinate={driverLocation}
+              heading={driverLocation.heading || 0}
+            />
           )}
 
           {/* Dynamic Multiple Pickups and Dropoffs Mapping */}
@@ -366,6 +356,7 @@ export default function RiderInTripScreen() {
               strokeColor="#FF8811"
               resetOnChange={false}
               onReady={(result) => {
+                setEtaMinutes(Math.ceil(result.duration));
 
                 if (!mapRef.current) return;
               
@@ -404,6 +395,11 @@ export default function RiderInTripScreen() {
             <Text style={styles.statusText}>
               {rideData?.status ? `TRIP STATUS: ${rideData.status.toUpperCase().replace('_', ' ')}` : "HEADING TO DESTINATION"}
             </Text>
+            {etaMinutes !== null && (
+              <Text style={styles.etaText}>
+                {etaMinutes} min to destination
+              </Text>
+            )}
           </View>
 
           <View style={styles.verificationRow}>
@@ -501,6 +497,7 @@ const styles = StyleSheet.create({
   
   statusContainer: { backgroundColor: "#EEF2FF", padding: 12, borderRadius: 12, alignItems: "center", marginBottom: 15 },
   statusText: { color: "#4338CA", fontWeight: "800", fontSize: 13, letterSpacing: 0.5 },
+  etaText: { color: "#4338CA", fontWeight: "700", fontSize: 12, marginTop: 4 },
   verificationRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 15, paddingHorizontal: 4 },
   vehicleInfoBlock: { flex: 1 },
   vehicleNumberBig: { fontSize: 20, fontWeight: "800", color: "#1E293B", letterSpacing: 0.5 },

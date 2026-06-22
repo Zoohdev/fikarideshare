@@ -6,7 +6,9 @@ import MapView, {
 import MapViewDirections from "react-native-maps-directions";
 import AnimatedDriverMarker from "./AnimatedDriverMarker";
 import RiderProfileMarker from "./RiderProfileMarker";
-const GOOGLE_MAPS_API_KEY = 'AIzaSyAwM10scPwotqO_WRQDYbndfFo4fWbriXA'; 
+import { Key } from "../../../constants/key";
+import { getRegion } from "../../../constants/mapTheme";
+const GOOGLE_MAPS_API_KEY = Key.apiKey;
 
 const RideMap = ({
     mapRef,
@@ -26,6 +28,8 @@ const RideMap = ({
 
   onRouteReady,
 }) => {
+  const focusCoordinate = driverCoordinate || riderCoordinate || pickupCoordinate || destinationCoordinate;
+
   return (
     <MapView
       ref={mapRef}
@@ -36,9 +40,12 @@ const RideMap = ({
       customMapStyle={
         customMapTheme
       }
+      initialRegion={
+        focusCoordinate ? getRegion(focusCoordinate) : undefined
+      }
       showsUserLocation={false}
       showsCompass={false}
-      
+
       scrollEnabled={true}
         zoomEnabled={true}
         rotateEnabled={true}

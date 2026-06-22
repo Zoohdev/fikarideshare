@@ -24,6 +24,7 @@ import DriverInfoCard from "../rideTracking/components/DriverInfoCard";
 import ETAWidget from "../rideTracking/components/ETAWidget";
 
 import useDriverTracking from "../rideTracking/hooks/useDriverTracking";
+import { MAP_THEME } from "../../constants/mapTheme";
 
 const API_BASE_URL =
   "http://192.168.0.112:8000";
@@ -31,7 +32,7 @@ const API_BASE_URL =
 const WS_BASE_URL =
   "ws://192.168.0.112:8000";
 
-const customMapTheme = [];
+const customMapTheme = MAP_THEME;
 
 export default function PublicTrackingScreen() {
 
@@ -224,9 +225,32 @@ export default function PublicTrackingScreen() {
           driverCoordinate={
             driverCoordinate
           }
+          driverLocation={
+            driverCoordinate
+          }
           driverHeading={
             heading
           }
+          pickupCoordinate={{
+            latitude:
+              rideData
+                .pickup
+                .latitude,
+
+            longitude:
+              rideData
+                .pickup
+                .longitude,
+          }}
+          onRouteReady={(result) => {
+            setDistance(
+              result.distance
+            );
+
+            setDuration(
+              result.duration
+            );
+          }}
         />
 
       </View>

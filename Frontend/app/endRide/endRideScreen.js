@@ -22,7 +22,8 @@ import {
 } from "../../constants/styles";
 import MapViewDirections from "react-native-maps-directions";
 import { Key } from "../../constants/key";
-import MapView, { Marker } from "react-native-maps";
+import { MAP_THEME, TRIP_OVERVIEW_DELTA } from "../../constants/mapTheme";
+import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
 import MaterialIcons from "react-native-vector-icons/MaterialIcons";
 import * as Animatable from "react-native-animatable";
 import MyStatusBar from "../../components/myStatusBar";
@@ -394,6 +395,7 @@ function rideInfoSheet() {
     return (
       <View style={{ flex: 1 }}>
         {showMap && <MapView
+          provider={PROVIDER_GOOGLE}
           region={{
             latitude:
     routesList?.[0]?.coordinate?.latitude ||
@@ -402,11 +404,11 @@ function rideInfoSheet() {
   longitude:
     routesList?.[0]?.coordinate?.longitude ||
     88.34588,
-    latitudeDelta:0.25,
-    longitudeDelta:0.25,
+    latitudeDelta: TRIP_OVERVIEW_DELTA,
+    longitudeDelta: TRIP_OVERVIEW_DELTA,
           }}
           style={{ flex: 1 }}
-          mapType="terrain"
+          customMapStyle={MAP_THEME}
           loadingEnabled
           loadingIndicatorColor={Colors.primaryColor}
         >

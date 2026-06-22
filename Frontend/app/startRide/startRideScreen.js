@@ -505,42 +505,14 @@ import BottomSheet, { BottomSheetScrollView } from "@gorhom/bottom-sheet";
 import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import api from "../../services/api";
+import { Key } from "../../constants/key";
+import { MAP_THEME, LIVE_TRACKING_DELTA } from "../../constants/mapTheme";
+import AnimatedDriverMarker from "../rideTracking/components/AnimatedDriverMarker";
 
-const GOOGLE_MAPS_API_KEY = 'AIzaSyAwM10scPwotqO_WRQDYbndfFo4fWbriXA';
+const GOOGLE_MAPS_API_KEY = Key.apiKey;
 const WS_BASE = "ws://192.168.0.104:8000/ws/tracking/";
 
-const customMapTheme = [
-  { "elementType": "geometry", "stylers": [{ "color": "#f5f5f5" }] },
-  { "elementType": "geometry.fill", "stylers": [{ "color": "#fefcfb" }] },
-  { "elementType": "labels.icon", "stylers": [{ "visibility": "off" }] },
-  { "elementType": "labels.text.fill", "stylers": [{ "color": "#616161" }] },
-  { "elementType": "labels.text.stroke", "stylers": [{ "color": "#f5f5f5" }] },
-  { "featureType": "administrative.land_parcel", "elementType": "labels.text.fill", "stylers": [{ "color": "#bdbdbd" }] },
-  { "featureType": "poi", "elementType": "geometry", "stylers": [{ "color": "#eeeeee" }] },
-  { "featureType": "poi", "elementType": "labels.text.fill", "stylers": [{ "color": "#757575" }] },
-  { "featureType": "poi.business", "stylers": [{ "visibility": "off" }] },
-  { "featureType": "poi.park", "elementType": "geometry", "stylers": [{ "color": "#e5e5e5" }] },
-  { "featureType": "poi.park", "elementType": "geometry.fill", "stylers": [{ "color": "#a5ffd6" }, { "saturation": 100 }] },
-  { "featureType": "poi.park", "elementType": "labels.icon", "stylers": [{ "visibility": "off" }] },
-  { "featureType": "poi.park", "elementType": "labels.text", "stylers": [{ "visibility": "off" }] },
-  { "featureType": "poi.park", "elementType": "labels.text.fill", "stylers": [{ "color": "#9e9e9e" }] },
-  { "featureType": "road", "stylers": [{ "color": "#f7f7f7" }, { "saturation": 100 }] },
-  { "featureType": "road", "elementType": "geometry", "stylers": [{ "color": "#ffffff" }] },
-  { "featureType": "road", "elementType": "geometry.fill", "stylers": [{ "color": "#cccccc" }] },
-  { "featureType": "road.arterial", "elementType": "labels.text.fill", "stylers": [{ "color": "#757575" }] },
-  { "featureType": "road.highway", "elementType": "geometry", "stylers": [{ "color": "#dadada" }] },
-  { "featureType": "road.highway", "elementType": "geometry.stroke", "stylers": [{ "color": "#f7f7f7" }, { "lightness": 100 }] },
-  { "featureType": "road.highway", "elementType": "labels.icon", "stylers": [{ "visibility": "off" }] },
-  { "featureType": "road.highway", "elementType": "labels.text.fill", "stylers": [{ "color": "#616161" }] },
-  { "featureType": "road.local", "elementType": "labels.text.fill", "stylers": [{ "color": "#9e9e9e" }] },
-  { "featureType": "transit.line", "elementType": "geometry", "stylers": [{ "color": "#e5e5e5" }] },
-  { "featureType": "transit.line", "elementType": "geometry.fill", "stylers": [{ "visibility": "off" }] },
-  { "featureType": "transit.station", "elementType": "geometry", "stylers": [{ "color": "#eeeeee" }] },
-  { "featureType": "transit.station.bus", "elementType": "geometry.fill", "stylers": [{ "visibility": "off" }] },
-  { "featureType": "water", "elementType": "geometry", "stylers": [{ "color": "#c9c9c9" }] },
-  { "featureType": "water", "elementType": "geometry.fill", "stylers": [{ "color": "#00b4d8" }] },
-  { "featureType": "water", "elementType": "labels.text.fill", "stylers": [{ "color": "#9e9e9e" }] }
-];
+const customMapTheme = MAP_THEME;
 
 const StartRideScreen = () => {
   const navigation = useNavigation();
@@ -581,6 +553,7 @@ const StartRideScreen = () => {
   const [waypoints, setWaypoints] = useState([]);
   const [pendingStops, setPendingStops] = useState([]);
   const [selectedPassengerForOTP, setSelectedPassengerForOTP] = useState(null);
+  const [etaMinutes, setEtaMinutes] = useState(null);
 
   useEffect(() => {
     let subscription;
@@ -591,7 +564,11 @@ const StartRideScreen = () => {
       subscription = await Location.watchPositionAsync(
         { accuracy: Location.Accuracy.High, timeInterval: 3000, distanceInterval: 5 },
         (location) => {
-          const newCoords = { latitude: location.coords.latitude, longitude: location.coords.longitude };
+          const newCoords = {
+            latitude: location.coords.latitude,
+            longitude: location.coords.longitude,
+            heading: location.coords.heading || 0,
+          };
           setDriverLocation(newCoords);
           
           if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
@@ -735,11 +712,16 @@ const StartRideScreen = () => {
           initialRegion={{
             latitude: driverLocation?.latitude || pickupLocation.latitude || 0,
             longitude: driverLocation?.longitude || pickupLocation.longitude || 0,
-            latitudeDelta: 0.05,
-            longitudeDelta: 0.05,
+            latitudeDelta: LIVE_TRACKING_DELTA,
+            longitudeDelta: LIVE_TRACKING_DELTA,
           }}
         >
-          {driverLocation && <Marker coordinate={driverLocation} title="You" />}
+          {driverLocation && (
+            <AnimatedDriverMarker
+              coordinate={driverLocation}
+              heading={driverLocation.heading || 0}
+            />
+          )}
 
           {/* Render all pending stops dynamically */}
           {pendingStops.map((stop, index) => (
@@ -763,6 +745,7 @@ const StartRideScreen = () => {
               strokeWidth={5}
               strokeColor="#FF8811"
               optimizeWaypoints={false}
+              onReady={(result) => setEtaMinutes(Math.ceil(result.duration))}
             />
           )}
         </MapView>
@@ -799,6 +782,9 @@ const StartRideScreen = () => {
       >
         <BottomSheetScrollView>
           <Text style={styles.sectionTitle}>Up Next</Text>
+          {etaMinutes !== null && (
+            <Text style={styles.etaText}>{etaMinutes} min to next stop</Text>
+          )}
           {pendingStops.map((stop, index) => (
             <View key={index} style={styles.passengerCard}>
               <View style={styles.passengerInfo}>
@@ -893,6 +879,7 @@ const styles = StyleSheet.create({
     borderColor: '#FFF'
   },
   sectionTitle: { fontSize: 18, fontWeight: "bold", paddingHorizontal: 20, paddingVertical: 10 },
+  etaText: { fontSize: 13, fontWeight: "600", color: Colors.primaryColor, paddingHorizontal: 20, marginBottom: 8 },
   passengerCard: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 20, paddingVertical: 15, borderBottomWidth: 1, borderBottomColor: "#eee" },
   passengerInfo: { flex: 1 },
   actionText: { fontSize: 12, fontWeight: "bold", color: "#777", textTransform: "uppercase" },

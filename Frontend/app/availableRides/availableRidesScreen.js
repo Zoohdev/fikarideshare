@@ -25,10 +25,12 @@ import MapViewDirections from 'react-native-maps-directions';
 import api from "../../services/api";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Location from "expo-location";
+import { Key } from "../../constants/key";
+import { MAP_THEME, LIVE_TRACKING_DELTA } from "../../constants/mapTheme";
 
 const API_BASE = "http://192.168.0.112:8000/api/rides/trips/";
 const WS_BASE = "ws://192.168.0.112:8000/ws/tracking/";
-const GOOGLE_MAPS_API_KEY = 'AIzaSyAwM10scPwotqO_WRQDYbndfFo4fWbriXA';
+const GOOGLE_MAPS_API_KEY = Key.apiKey;
 const CANCELLATION_REASONS = [
   { id: '1', label: 'Change of plans', icon: 'event-busy' },
   { id: '2', label: 'Driver taking too long', icon: 'timer-off' },
@@ -51,36 +53,7 @@ const paymentMethods = [
   { id: "3", name: "Credit/Debit Card", icon: "credit-card", type: "card",  },
 ];
 
-const customMapTheme = [ { "elementType": "geometry", "stylers": [{ "color": "#f5f5f5" }] },
-{ "elementType": "geometry.fill", "stylers": [{ "color": "#fefcfb" }] },
-{ "elementType": "labels.icon", "stylers": [{ "visibility": "off" }] },
-{ "elementType": "labels.text.fill", "stylers": [{ "color": "#616161" }] },
-{ "elementType": "labels.text.stroke", "stylers": [{ "color": "#f5f5f5" }] },
-{ "featureType": "administrative.land_parcel", "elementType": "labels.text.fill", "stylers": [{ "color": "#bdbdbd" }] },
-{ "featureType": "poi", "elementType": "geometry", "stylers": [{ "color": "#eeeeee" }] },
-{ "featureType": "poi", "elementType": "labels.text.fill", "stylers": [{ "color": "#757575" }] },
-{ "featureType": "poi.business", "stylers": [{ "visibility": "off" }] },
-{ "featureType": "poi.park", "elementType": "geometry", "stylers": [{ "color": "#e5e5e5" }] },
-{ "featureType": "poi.park", "elementType": "geometry.fill", "stylers": [{ "color": "#a5ffd6" }, { "saturation": 100 }] },
-{ "featureType": "poi.park", "elementType": "labels.icon", "stylers": [{ "visibility": "off" }] },
-{ "featureType": "poi.park", "elementType": "labels.text", "stylers": [{ "visibility": "off" }] },
-{ "featureType": "poi.park", "elementType": "labels.text.fill", "stylers": [{ "color": "#9e9e9e" }] },
-{ "featureType": "road", "stylers": [{ "color": "#f7f7f7" }, { "saturation": 100 }] },
-{ "featureType": "road", "elementType": "geometry", "stylers": [{ "color": "#ffffff" }] },
-{ "featureType": "road", "elementType": "geometry.fill", "stylers": [{ "color": "#cccccc" }] },
-{ "featureType": "road.arterial", "elementType": "labels.text.fill", "stylers": [{ "color": "#757575" }] },
-{ "featureType": "road.highway", "elementType": "geometry", "stylers": [{ "color": "#dadada" }] },
-{ "featureType": "road.highway", "elementType": "geometry.stroke", "stylers": [{ "color": "#f7f7f7" }, { "lightness": 100 }] },
-{ "featureType": "road.highway", "elementType": "labels.icon", "stylers": [{ "visibility": "off" }] },
-{ "featureType": "road.highway", "elementType": "labels.text.fill", "stylers": [{ "color": "#616161" }] },
-{ "featureType": "road.local", "elementType": "labels.text.fill", "stylers": [{ "color": "#9e9e9e" }] },
-{ "featureType": "transit.line", "elementType": "geometry", "stylers": [{ "color": "#e5e5e5" }] },
-{ "featureType": "transit.line", "elementType": "geometry.fill", "stylers": [{ "visibility": "off" }] },
-{ "featureType": "transit.station", "elementType": "geometry", "stylers": [{ "color": "#eeeeee" }] },
-{ "featureType": "transit.station.bus", "elementType": "geometry.fill", "stylers": [{ "visibility": "off" }] },
-{ "featureType": "water", "elementType": "geometry", "stylers": [{ "color": "#c9c9c9" }] },
-{ "featureType": "water", "elementType": "geometry.fill", "stylers": [{ "color": "#00b4d8" }] },
-{ "featureType": "water", "elementType": "labels.text.fill", "stylers": [{ "color": "#9e9e9e" }] }];
+const customMapTheme = MAP_THEME;
 
 const MapSection = ({ currentLocation, destinationCoords, showMap, mapRef }) => {
   if (!showMap || !currentLocation || !currentLocation.latitude) return null;
@@ -94,8 +67,8 @@ const MapSection = ({ currentLocation, destinationCoords, showMap, mapRef }) => 
         initialRegion={{
           latitude: currentLocation.latitude,
           longitude: currentLocation.longitude,
-          latitudeDelta: 0.002,
-          longitudeDelta: 0.002,
+          latitudeDelta: LIVE_TRACKING_DELTA,
+          longitudeDelta: LIVE_TRACKING_DELTA,
         }}
       >
         <Marker coordinate={currentLocation} anchor={{ x: 0.5, y: 1 }}>
