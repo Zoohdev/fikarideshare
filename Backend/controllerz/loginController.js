@@ -67,18 +67,60 @@ exports.directLogin = (req, res) => {
       console.log("User found:", user);
 
 
-      if (user.role_id === 1) {
+      if (user.role_id === 2) {
 
-        return res.json({
-
-          message: "Driver login successful",
-
-          userId: user.user_id,
-
-          roleId: user.role_id,
-
-          driverId: user.user_id
-        });
+        db.get(
+          `
+          SELECT *
+          FROM drivers
+          WHERE user_id = ?
+          `,
+          [user.user_id],
+      
+          (driverErr, driver) => {
+      
+            if (driverErr) {
+      
+              console.error(
+                "Driver fetch error:",
+                driverErr
+              );
+      
+              return res.status(500).json({
+                message:
+                  "Driver fetch failed"
+              });
+      
+            }
+      
+            if (!driver) {
+      
+              return res.status(404).json({
+                message:
+                  "Driver profile not found"
+              });
+      
+            }
+      
+            return res.json({
+      
+              message:
+                "Driver login successful",
+      
+              userId:
+                user.user_id,
+      
+              roleId:
+                user.role_id,
+      
+              driverId:
+                driver.driver_id
+      
+            });
+      
+          }
+        );
+      
       }
 
       // 👤 RIDER

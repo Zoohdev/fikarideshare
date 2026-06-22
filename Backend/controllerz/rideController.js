@@ -1,5 +1,6 @@
 const db = require("../db"); // Adjust path as needed
 const h3 = require("h3-js");
+const crypto = require("crypto");
 
 const { findNearbyDriver } = require("../utils/matching");
 const { findBestMatch } = require("../services/matching");
@@ -475,17 +476,15 @@ exports.getAvailableRides = async (req, res) => {
 };
 
 
-const crypto = require('crypto');
 
 // Generate unique trip code
 const generateTripCode = () => {
   return `TRIP-${Date.now()}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
 };
 
-
-exports.createTrip = async (req, res) => {
+exports.requestTrip = async (req, res) => {
   try {
-    
+    const trip_code = generateTripCode();
     const {
       rider_id,
       pickup_location,
@@ -496,10 +495,11 @@ exports.createTrip = async (req, res) => {
       dropoff_longitude,
       // distance,
       // duration,
-      tripType,
+      trip_type,
       fare_amount,
       discount_amount,
       total_amount,
+      ride_option_id,
       payment_method_id
     } = req.body;
 
@@ -511,206 +511,235 @@ exports.createTrip = async (req, res) => {
       });
     }
 
-    //  Normalize rider_id
-    const riderId = Number(rider_id);
-
-    //  Get rider location (real-time)
-    const lat = pickup_latitude;
-    const lng = pickup_longitude;
     
-    console.log("📍 Using pickup location:", lat, lng);
+    const trip = await new Promise(
+      (resolve, reject) => {
 
-    // const { lat, lng } = riderLocation;
+        db.run(
+          `
+          INSERT INTO trips (
+            trip_code,
 
-    console.log("📍 Rider location:", lat, lng);
+            pickup_location,
+            pickup_latitude,
+            pickup_longitude,
 
-    //  FIND NEARBY DRIVERS (service)
-    const nearbyDrivers = findNearbyDriver(lat, lng, 1);
+            dropoff_location,
+            dropoff_latitude,
+            dropoff_longitude,
 
-    console.log("🚗 Nearby drivers:", nearbyDrivers);
+            trip_type,
 
-    if (!nearbyDrivers.length) {
-      return res.json({
-        success: true,
-        message: "No drivers nearby"
-      });
-    }
+            fare_amount,
+            discount_amount,
+            total_amount,
 
-    const trip_code = generateTripCode();
+            trip_status,
 
-    console.log("🧾 Trip code:", trip_code);
-    console.log("🚗 Nearby drivers:", nearbyDrivers);
-    if (tripType === "solo") {
-    
-    const trip = await new Promise((resolve, reject) => {
-      req.db.run(
-        `INSERT INTO trips (
-          rider_id,
-          driver_id,
-          pickup_location,
-          pickup_latitude,
-          pickup_longitude,
-          dropoff_location,
-          dropoff_latitude,
-          dropoff_longitude,
-          tripType,
-          fare_amount,
-          discount_amount,
-          total_amount,
-          payment_method_id,
-          trip_status,
-          trip_code,
-          created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          riderId,
-          selectedDriver.id,
-          pickup_location,
-          pickup_latitude,
-          pickup_longitude,
-          dropoff_location,
-          dropoff_latitude,
-          dropoff_longitude,
-          tripType,
-          fare_amount,
-          discount_amount || 0,
-          total_amount,
-          payment_method_id,
-          "requested",
-          trip_code,
-          new Date().toISOString()
-        ],
-        function (err) {
-          if (err) {
-            console.error("❌ DB ERROR:", err);
-            reject(err);
-          } else {
-            resolve({
-              trip_id: this.lastID,
-              trip_code
-            });
+            rider_id,
+            driver_id,
+
+            payment_method_id,
+            ride_option_id,
+
+            searching_started_at,
+            created_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `,
+          [
+            trip_code,
+
+            pickup_location,
+            pickup_latitude,
+            pickup_longitude,
+
+            dropoff_location,
+            dropoff_latitude,
+            dropoff_longitude,
+
+            trip_type,
+
+            fare_amount,
+            discount_amount || 0,
+            total_amount,
+
+            //  IMPORTANT
+            "requested",
+
+            rider_id,
+
+            //  NO DRIVER YET
+            null,
+
+            payment_method_id,
+            ride_option_id,
+
+            new Date().toISOString(),
+            new Date().toISOString()
+          ],
+          function (err) {
+            if (err) {
+              reject(err);
+            } else {
+              resolve({
+                trip_id: this.lastID,
+                trip_code
+              });
+            }
           }
-        }
-      );
-    });
-
-    // 🔥 NOTIFY DRIVER
-    const io = req.app.get("io");
-
-    if (!io) {
-      console.log("❌ IO not initialized");
-    }
-
-    const driverSocketId = global.driverSockets?.get(selectedDriver.id);
-    const driverId = global.driverSockets?.get(driver.id);
-
-    console.log("📡 Driver socket:", driverId,driverSocketId);
+        );
+      }
+    );
+    const nearbyDrivers = findNearbyDriver(
+      pickup_latitude,
+      pickup_longitude,
+      1
+    );
+    console.log(
+      "🚗 Nearby drivers:",
+      nearbyDrivers
+    );
 
     if (!nearbyDrivers.length) {
-      console.log("❌ No nearby drivers → NOT sending request");
-    
+
+      await new Promise((resolve, reject) => {
+
+        db.run(
+          `
+          UPDATE trips
+          SET
+            trip_status = 'cancelled',
+            failure_reason = 'NO_NEARBY_DRIVER'
+            WHERE trip_id = ?
+            AND rider_id = ?
+          `,
+          [trip.trip_id],
+          function (err) {
+
+            if (err) reject(err);
+            else resolve(this);
+
+          }
+        );
+
+      });
+
       return res.json({
         success: false,
-        message: "No drivers nearby"
+        message: "No nearby drivers"
       });
     }
-    
-    const drivers = locationStore.getAllDrivers();
+    const io = global.io;
 
-console.log("📍 Rider:", lat, lng);
 
-drivers.forEach(d => {
-  console.log("🚗 Driver:", d.id, d.lat, d.lng);
-});
+// ✅ fetch rider ONCE
+const rider = await new Promise(
+  (resolve, reject) => {
 
-    if (driverSocketId && io) {
-      console.log("✅ Sending request to nearby driver:", selectedDriver.id);
-    
-      io.to(driverSocketId).emit("ride-request", {
-        tripId: trip.trip_id,
-        rider_id: riderId,
-        pickup_location,
-        dropoff_location
-      });
-    }
+    db.get(
+      `
+      SELECT
+        user_id,
+        name,
+        profile_image,
+        phone
+      FROM users
+      WHERE user_id = ?
+      `,
+      [rider_id],
 
-    return res.json({
-      success: true,
-      message: "Driver notified",
-      data: {
-        trip_id: trip.trip_id,
-        driver: selectedDriver
+      (err, row) => {
+
+        if (err) {
+          reject(err);
+        } else {
+          resolve(row);
+        }
+
       }
-    });
+    );
+
+  }
+);
+
+// ✅ loop properly
+for (const driver of nearbyDrivers) {
+
+  const socketId =
+    global.driverSockets?.get(
+      Number(driver.id)
+    );
+
+  if (!socketId) {
+    continue;
   }
 
-  else {
+  io.to(socketId).emit(
+    "new_trip_request",
+    {
 
-    console.log("👥 SHARED RIDE FLOW");
-  
-    global.pendingRiders = global.pendingRiders || [];
-  
-    global.pendingRiders.push({
-      riderId,
-      pickup: { lat: pickup_latitude, lng: pickup_longitude },
-      destination: { lat: dropoff_latitude, lng: dropoff_longitude },
-      socketId: req.headers["socket-id"] // 🔥 IMPORTANT
-    });
-  
-    console.log("Pending riders:", global.pendingRiders.length);
-  
-    //  WAIT UNTIL 2 RIDERS
-    if (global.pendingRiders.length < 2) {
-      return res.json({
-        success: true,
-        message: "Waiting for more riders"
-      });
+      trip_id:
+        trip.trip_id,
+
+      trip_code:
+        trip.trip_code,
+
+      riders: [{
+
+        rider_id:
+          rider.user_id,
+
+        name:
+          rider.name ||
+          "Rider",
+
+        profile_image:
+          rider.profile_image,
+
+        phone:
+          rider.phone
+
+      }],
+
+      pickup_location,
+      pickup_latitude,
+      pickup_longitude,
+
+      dropoff_location,
+      dropoff_latitude,
+      dropoff_longitude,
+
+      fare_amount:
+        total_amount,
+
+      payment_method_id,
+
+      trip_type,
+
+      ride_option_id,
+
+      created_at:
+        new Date().toISOString()
+
     }
-  
-    const mainRider = global.pendingRiders[0];
-    const candidates = global.pendingRiders.slice(1);
-  
-    const match = await findBestMatch(mainRider, candidates,seats);
-  
-    if (!match || match.assigned.length < 2) {
-      return res.json({
-        success: true,
-        message: "Matching failed"
-      });
-    }
-  
-    const driver = findNearbyDriver(
-      mainRider.pickup.lat,
-      mainRider.pickup.lng,
-      1
-    )[0];
-  
-    const rideId = "ride_" + Date.now();
-  
-    global.rides = global.rides || {};
-    global.rides[rideId] = {
-      type: "shared",
-      riders: match.assigned,
-      driver,
-      route: match
-    };
-  
-    //  SEND TO DRIVER
-    const driverSocketId = global.driverSockets?.get(driver.id);
-  
-    io.to(driverSocketId).emit("ride-request", {
-      rideId,
-      riders: match.assigned,
-      route: match
-    });
-  
-    global.pendingRiders = [];
-  
-    return res.json({
-      success: true,
-      message: "Matching done, waiting for driver"
-    });
+  );
+
+  console.log(
+    "📡 dispatched to driver:",
+    driver.id
+  );
+
+}
+return res.status(200).json({
+  success: true,
+  message: "Trip created successfully",
+  data: {
+    trip_id: trip.trip_id,
+    trip_code: trip.trip_code,
+    trip_status: "requested"
   }
+});
   } catch (err) {
     console.error("❌ createTrip error:", err);
     return res.status(500).json({
@@ -722,7 +751,355 @@ drivers.forEach(d => {
 };
 
 
+exports.acceptTrip = async (req, res) => {
+
+  try {
+
+    const { tripId } = req.params;
+
+    const {
+      driver_id
+    } = req.body;
+    console.log(
+      "🔥 incoming driver_id:",
+      driver_id
+    );
+    db.all(
+      "SELECT * FROM drivers",
+      [],
+      (e, rows) => {
+        console.log(rows);
+      }
+    );    
+    // ✅ ATOMIC LOCK
+    const result =
+      await new Promise(
+        (resolve, reject) => {
+
+          db.run(
+            `
+            UPDATE trips
+            SET
+              driver_id = ?,
+
+              trip_status = 'accepted',
+
+              accepted_at = CURRENT_TIMESTAMP,
+
+              driver_assigned_at =
+                CURRENT_TIMESTAMP
+
+            WHERE trip_id = ?
+            AND driver_id IS NULL
+            `,
+            [driver_id, tripId],
+
+            function (err) {
+
+              if (err) {
+                reject(err);
+              } else {
+
+                resolve(this);
+
+              }
+
+            }
+          );
+
+        }
+      );
+
+    // another driver accepted
+    if (result.changes === 0) {
+
+      return res.status(409).json({
+
+        success: false,
+
+        message:
+          "Trip already accepted"
+
+      });
+
+    }
+
+    // fetch updated trip
+    const trip =
+      await new Promise(
+        (resolve, reject) => {
+
+          db.get(
+            `
+            SELECT *
+            FROM trips
+            WHERE trip_id = ?
+            `,
+            [tripId],
+
+            (err, row) => {
+
+              if (err) {
+                reject(err);
+              } else {
+
+                resolve(row);
+
+              }
+
+            }
+          );
+
+        }
+      );
+
+    // ✅ NOTIFY RIDER
+    const riderSocket =
+  global.riderSockets.get(
+    trip.rider_id.toString()
+  );
+
+console.log(
+  "🎯 rider socket:",
+  riderSocket
+);
+
+console.log(
+  "🗺 all rider sockets:",
+  Array.from(
+    global.riderSockets.entries()
+  )
+);
+const driver =
+  await new Promise(
+    (resolve, reject) => {
+
+      // db.get(
+      //   `
+      //   SELECT
+      //     d.driver_id,
+      //     d.user_id,
+      //     d.driver_status,
+
+      //     u.name,
+      //     u.phone,
+      //     u.profile_image
+
+      //   FROM drivers d
+
+      //   LEFT JOIN users u
+      //   ON d.user_id = u.user_id
+
+      //   WHERE d.driver_id = ?
+      //   `,
+      //   [driver_id],
+      db.get(
+        `
+        SELECT
+
+          d.driver_id,
+
+          d.user_id,
+
+          d.driver_status,
+
+          u.name,
+          u.phone,
+          u.profile_image
+
+          
+
+        FROM drivers d
+
+        LEFT JOIN users u
+          ON d.user_id = u.user_id
+
+        WHERE d.driver_id = ?
+        `,
+        [driver_id],
+
+        (err, row) => {
+
+          if (err)
+            reject(err);
+          else
+            resolve(row);
+
+        }
+      );
+
+    }
+  );
+
+console.log(
+  "🚗 DRIVER:",
+  driver
+);
+
+if (
+  riderSocket &&
+  global.io
+) {
+
+  // const payload = {
+
+  //   trip_id:
+  //     trip.trip_id,
+  //   trip_code:
+  //     trip.trip_code,
+  //   pickup_location:
+  //     trip.pickup_location,
+
+  //   dropoff_location:
+  //     trip.dropoff_location,
+
+  //   trip_type:
+  //     trip.trip_type,
+
+  //   fare_amount:
+  //     trip.fare_amount,
+
+  //     driver: driver
+  //     ? {
+      
+  //         driver_id:
+  //           driver.driver_id,
+      
+  //         name:
+  //           driver.name,
+      
+  //         phone:
+  //           driver.phone,
+      
+  //         profile_image:
+  //           driver.profile_image
+      
+  //       }
+  //     : null
+
+  // };
+  const payload = {
+    trip_id: trip.trip_id,
+    trip_code: trip.trip_code,
   
+    pickup_location: trip.pickup_location,
+    pickup_latitude: trip.pickup_latitude,
+    pickup_longitude: trip.pickup_longitude,
+  
+    dropoff_location: trip.dropoff_location,
+    dropoff_latitude: trip.dropoff_latitude,
+    dropoff_longitude: trip.dropoff_longitude,
+  
+    fare_amount: trip.fare_amount,
+    trip_type: trip.trip_type,
+  
+    driver: {
+      driver_id: driver.driver_id,
+      name: driver.name,
+      phone: driver.phone,
+      profile_image: driver.profile_image,
+  
+      // vehicle_model: driver.vehicle_model,
+      // vehicle_number: driver.vehicle_number,
+      // vehicle_color: driver.vehicle_color,
+    }
+  };
+  console.log(
+    "📦 EMITTING:",
+    payload
+  );
+
+  global.io
+    .to(riderSocket)
+    .emit(
+      "trip_accepted",
+      payload
+    );
+
+  console.log(
+    "✅ trip_accepted emitted"
+  );
+
+}
+else {
+
+  console.log(
+    "❌ rider socket missing"
+  );
+
+}
+  
+// global.io
+//   .to(riderSocket)
+//   .emit(
+//     "trip_accepted",
+//     {
+
+//       trip_id:
+//         trip.trip_id,
+
+//       trip_status:
+//         "accepted",
+
+//       pickup_location:
+//         trip.pickup_location,
+
+//       dropoff_location:
+//         trip.dropoff_location,
+
+//         driver: {
+
+//           driver_id:
+//             driver.driver_id,
+        
+//           name:
+//             driver.name ||
+//             "Driver",
+        
+//           phone:
+//             driver.phone,
+        
+//           profile_image:
+//             driver.profile_image
+        
+//         }
+//     }
+//   );
+console.log(
+  "✅ trip_accepted emitted"
+);
+return res.json({
+
+  success: true,
+
+  message:
+    "Trip accepted",
+
+  data: trip
+
+});
+  }
+
+catch (error) {
+
+    console.error(
+      "acceptTrip error:",
+      error
+    );
+
+    return res.status(500).json({
+
+      success: false,
+
+      message:
+        error.message
+
+    });
+
+  }
+
+};
+
 
 // Get trips by rider ID
 exports.getTripsByRider = async (req, res) => {
@@ -949,8 +1326,16 @@ exports.updateTripStatus = async (req, res) => {
 exports.cancelTrip = async (req, res) => {
   try {
     const { tripId } = req.params;
-    const { cancellation_reason } = req.body;
-
+    const { cancellation_reason ,cancelled_by} = req.body;
+    console.log(
+      "🚫 tripId:",
+      tripId
+    );
+    
+    console.log(
+      "🚫 cancelled_by:",
+      cancelled_by
+    );
     // 🔍 1. Get current trip
     const currentTrip = await new Promise((resolve, reject) => {
       req.db.get(
@@ -1014,6 +1399,55 @@ exports.cancelTrip = async (req, res) => {
         }
       );
     });
+ // 🚗 notify driver if assigned
+ if (updatedTrip.driver_id) {
+
+  const driverSocket =
+    global.driverSockets?.get(
+      updatedTrip.driver_id.toString()
+    );
+
+  console.log(
+    "📡 notifying driver socket:",
+    driverSocket
+  );
+
+  if (
+    driverSocket &&
+    global.io
+  ) {
+
+    global.io
+      .to(driverSocket)
+      .emit(
+        "trip_cancelled",
+        {
+
+          trip_id:
+            updatedTrip.trip_id,
+
+          cancellation_reason:
+            updatedTrip.cancellation_reason,
+
+          message:
+            "Rider cancelled the trip"
+
+        }
+      );
+
+    console.log(
+      "✅ trip_cancelled emitted to driver"
+    );
+
+  } else {
+
+    console.log(
+      "❌ driver socket not found"
+    );
+
+  }
+
+}
 
     //  4. Success response
     return res.status(200).json({

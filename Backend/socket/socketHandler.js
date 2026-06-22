@@ -5,7 +5,7 @@ const db = require("../db");
 //  Global maps (ONLY HERE)
 global.riderSockets = global.riderSockets || new Map();
 global.driverSockets = global.driverSockets || new Map();
-global.pendingTrips =global.pendingTrips || new Map();
+// global.pendingTrips =global.pendingTrips || new Map();
 
 const socketHandler = (io) => {
   global.io = io; // make globally accessible
@@ -16,19 +16,34 @@ const socketHandler = (io) => {
     // =========================
     // REGISTER RIDER
     // =========================
-    socket.on("register-rider", ({ riderId }) => {
-      if (!riderId) {
-        console.log(" Invalid riderId");
-        return;
+    // socket.on("register-rider", ({ riderId }) => {
+    //   if (!riderId) {
+    //     console.log(" Invalid riderId");
+    //     return;
+    //   }
+    //   const id = riderId.toString();   
+    //   // global.riderSockets.set(riderId, socket.id);
+    //   global.riderSockets.set(id, socket.id);
+
+    //   console.log(" Rider registered:", riderId);
+    //   console.log(" riderSockets:", global.riderSockets);
+    // });
+    socket.on(
+      "register-rider",
+      ({ riderId }) => {
+    
+        console.log(
+          "🧍 rider registered:",
+          riderId
+        );
+    
+        global.riderSockets.set(
+          riderId.toString(),
+          socket.id
+        );
+    
       }
-      const id = riderId.toString();   
-      // global.riderSockets.set(riderId, socket.id);
-      global.riderSockets.set(id, socket.id);
-
-      console.log(" Rider registered:", riderId);
-      console.log(" riderSockets:", global.riderSockets);
-    });
-
+    );
     // =========================
     // REGISTER DRIVER
     // =========================
@@ -113,142 +128,142 @@ if (!id || isNaN(id)) {
     // =========================
     // 🚗 DRIVER ACCEPT RIDE
     // =========================
-    socket.on(
-      "acceptRide",
-      async ({ trip_id, driver }) => {
+//     socket.on(
+//       "acceptRide",
+//       async ({ trip_id, driver }) => {
     
-        console.log(
-          ` Driver accepted trip ${trip_id}`
-        );
+//         console.log(
+//           ` Driver accepted trip ${trip_id}`
+//         );
     
-        if (!trip_id || !driver?.id) {
+//         if (!trip_id || !driver?.id) {
     
-          console.log(
-            "Invalid accept payload"
-          );
+//           console.log(
+//             "Invalid accept payload"
+//           );
     
-          socket.emit(
-            "acceptRideError",
-            {
-              message:
-                "Invalid payload"
-            }
-          );
+//           socket.emit(
+//             "acceptRideError",
+//             {
+//               message:
+//                 "Invalid payload"
+//             }
+//           );
     
-          return;
-        }
+//           return;
+//         }
     
-        // find pending trip
-        const pendingTrip =
-          global.pendingTrips?.get(
-            trip_id
-          );
+//         // find pending trip
+//         const pendingTrip =
+//           global.pendingTrips?.get(
+//             trip_id
+//           );
     
-        if (!pendingTrip) {
+//         if (!pendingTrip) {
     
-          socket.emit(
-            "acceptRideError",
-            {
-              message:
-                "Trip expired"
-            }
-          );
+//           socket.emit(
+//             "acceptRideError",
+//             {
+//               message:
+//                 "Trip expired"
+//             }
+//           );
     
-          return;
-        }
+//           return;
+//         }
     
-        // update DB
-        db.run(
-          `UPDATE trips
-           SET driver_id = ?,
-           trip_status = 'accepted'
-           WHERE trip_id = ?`,
-          [
-            driver.id,
-            trip_id
-          ],
-          function (err) {
+//         // update DB
+//         db.run(
+//           `UPDATE trips
+//            SET driver_id = ?,
+//            trip_status = 'accepted'
+//            WHERE trip_id = ?`,
+//           [
+//             driver.id,
+//             trip_id
+//           ],
+//           function (err) {
     
-            if (err) {
+//             if (err) {
     
-              console.error(
-                "❌ DB Error:",
-                err
-              );
+//               console.error(
+//                 "❌ DB Error:",
+//                 err
+//               );
     
-              socket.emit(
-                "acceptRideError",
-                {
-                  message:
-                    "Database error"
-                }
-              );
+//               socket.emit(
+//                 "acceptRideError",
+//                 {
+//                   message:
+//                     "Database error"
+//                 }
+//               );
     
-              return;
-            }
+//               return;
+//             }
     
-            console.log(
-              "🚗 Trip assigned successfully"
-            );
+//             console.log(
+//               "🚗 Trip assigned successfully"
+//             );
     
-            // notify other drivers
-            io.emit(
-              "rideTaken",
-              {
-                tripId: trip_id
-              }
-            );
+//             // notify other drivers
+//             io.emit(
+//               "rideTaken",
+//               {
+//                 tripId: trip_id
+//               }
+//             );
     
-            // resolve waiting promise
-            // notify accepted driver
-socket.emit(
-  "rideAccepted",
-  {
+//             // resolve waiting promise
+//             // notify accepted driver
+// socket.emit(
+//   "rideAccepted",
+//   {
 
-    trip_id,
+//     trip_id,
 
-    driver,
+//     driver,
 
-    match: pendingTrip.match,
+//     match: pendingTrip.match,
 
-    sequence:
-      pendingTrip.match.sequence,
+//     sequence:
+//       pendingTrip.match.sequence,
 
-    riders:
-      pendingTrip.match.assignedRiders,
+//     riders:
+//       pendingTrip.match.assignedRiders,
 
-    eta:
-      pendingTrip.match.eta,
+//     eta:
+//       pendingTrip.match.eta,
 
-    route:
-      pendingTrip.match.route
+//     route:
+//       pendingTrip.match.route
 
-  }
-);
+//   }
+// );
 
-// resolve AFTER emit
-pendingTrip.resolve({
+// // resolve AFTER emit
+// pendingTrip.resolve({
 
-  driver,
+//   driver,
 
-  match: pendingTrip.match
+//   match: pendingTrip.match
 
-});
+// });
 
-// NOW remove
-setTimeout(() => {
+// // NOW remove
+// setTimeout(() => {
 
-  global.pendingTrips.delete(
-    trip_id
-  );
+//   global.pendingTrips.delete(
+//     trip_id
+//   );
 
-}, 1000);
+// }, 1000);
     
-          }
-        );
+//           }
+//         );
     
-      }
-    );
+//       }
+//     );
 
     // =========================
     //  DRIVER REJECT
