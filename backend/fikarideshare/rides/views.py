@@ -273,8 +273,11 @@ class RideViewSet(viewsets.ModelViewSet):
         if ride.status in [ride.Status.DRIVER_ASSIGNED, ride.Status.IN_PROGRESS]:
             pending_stops.append({'type': 'dropoff', 'user_id': ride.rider.id, 'point': ride.dropoff_location, 'name': 'Primary Rider', 'requires_pickup': ride.rider.id})
 
-        # 3. Gather all pending stops (Pool Participants)
+        # 3. Gather all pending stops (Pool Participants - excludes the
+        # organizer's own mirrored row, since their stop is already added
+        # above from ride.rider/ride.status directly)
         for p in ride.participants.filter(
+            is_organizer=False,
             status__in=[
                 RideParticipant.Status.ACCEPTED,
                 RideParticipant.Status.PICKED_UP,
@@ -305,7 +308,7 @@ class RideViewSet(viewsets.ModelViewSet):
         # Add users who are already in the car to the picked_up set
         if ride.status == ride.Status.IN_PROGRESS:
             picked_up_users.add(ride.rider.id)
-        for p in ride.participants.filter(status='picked_up'):
+        for p in ride.participants.filter(is_organizer=False, status='picked_up'):
             picked_up_users.add(p.user.id)
 
         while pending_stops:
@@ -368,7 +371,10 @@ class RideViewSet(viewsets.ModelViewSet):
                 'message': 'Your ride is complete!'
             })
             
-            # FIX: Check if car is now empty (assuming primary rider is also gone or isn't part of the pool)
+            # Is the car now empty? ride.participants now includes the
+            # organizer (is_organizer=True, kept in sync below in Case B),
+            # so this correctly waits for the primary rider too instead of
+            # only counting pool joiners.
             active_participants = ride.participants.exclude(status__in=['dropped_off', 'cancelled']).exists()
             if not active_participants:
                 # Use RideService to safely transition state just like CompleteRideView does
@@ -384,15 +390,26 @@ class RideViewSet(viewsets.ModelViewSet):
 
         # Case B: Dropping off the Primary Rider
         if str(ride.rider.id) == str(user_id_to_drop) and ride.status == ride.Status.IN_PROGRESS:
-            ride_fare = ride.estimated_fare 
-            
+            ride_fare = ride.estimated_fare
+
+            # Keep the organizer's own RideParticipant row in sync, so the
+            # "is the car empty" check below (and in Case A) sees them as
+            # gone too, instead of only ever checking pool joiners.
+            organizer_participant = ride.participants.filter(
+                user_id=user_id_to_drop, is_organizer=True
+            ).first()
+            if organizer_participant:
+                organizer_participant.status = RideParticipant.Status.DROPPED_OFF
+                organizer_participant.fare_amount = ride_fare
+                organizer_participant.save()
+
             service._broadcast_ride_update(ride, {
-                'event': 'individual_dropped_off', 
-                'user_id': user_id_to_drop, 
+                'event': 'individual_dropped_off',
+                'user_id': user_id_to_drop,
                 'final_fare': str(ride_fare),
                 'message': 'Your ride is complete!'
             })
-            
+
             # If the car is completely empty, end the whole session safely
             if not ride.participants.exclude(status__in=['dropped_off', 'cancelled']).exists():
                 service.update_ride_status(
@@ -435,8 +452,12 @@ class RideViewSet(viewsets.ModelViewSet):
         ride = self.get_object()
        
         if request.method == 'GET':
+            # is_organizer=False - matches RideSerializer.get_participants:
+            # this lists other passengers, the rider already knows they're
+            # in their own ride.
             participants = ride.participants.filter(
-                status=RideParticipant.Status.ACCEPTED
+                status=RideParticipant.Status.ACCEPTED,
+                is_organizer=False,
             )
             serializer = RideParticipantSerializer(participants, many=True)
             return Response(serializer.data)
@@ -675,14 +696,32 @@ class CompleteRideView(APIView):
 
                     participants = list(ride.participants.all())
 
+                    # The organizer (ride.rider) is mirrored as one of these
+                    # participants (is_organizer=True, see
+                    # RideService.create_ride) for every ride created after
+                    # this was added, and backfilled for older ones by
+                    # migration 0018. Defensive fallback in case a ride
+                    # somehow has none, rather than silently dropping the
+                    # rider's own share from the split.
+                    if not any(p.is_organizer for p in participants):
+                        participants.append(RideParticipant(
+                            ride=ride,
+                            user_id=ride.rider_id,
+                            is_organizer=True,
+                            status=RideParticipant.Status.ACCEPTED,
+                            pickup_location=ride.pickup_location,
+                            pickup_address=ride.pickup_address,
+                            dropoff_location=ride.dropoff_location,
+                            dropoff_address=ride.dropoff_address,
+                            estimated_distance_meters=ride.estimated_distance_meters,
+                            pickup_code=ride.verification_code,
+                        ))
+
                     # ride.final_fare is the total for the whole vehicle trip
                     # (set by _calculate_final_fare above) - it must stay the
                     # grand total, not get overwritten with just one leg's
                     # share (the previous version of this code did that).
                     split_input = [{
-                        'user_id': str(ride.rider_id),
-                        'distance_meters': ride.estimated_distance_meters or 0,
-                    }] + [{
                         'user_id': str(p.user_id),
                         'distance_meters': p.estimated_distance_meters or 0,
                     } for p in participants]

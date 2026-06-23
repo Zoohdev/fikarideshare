@@ -137,9 +137,15 @@ class RideSerializer(serializers.ModelSerializer):
     
     def get_participants(self, obj):
 
+        # is_organizer=False: the ride's own rider is mirrored as a
+        # RideParticipant row internally (see RideService.create_ride) but
+        # is already exposed via the top-level `rider` field - excluding
+        # them here keeps this field's contract exactly what it was before
+        # that row existed (other passengers only, not the requester).
         accepted_participants = (
             obj.participants.filter(
-                status=RideParticipant.Status.ACCEPTED
+                status=RideParticipant.Status.ACCEPTED,
+                is_organizer=False,
             )
         )
 

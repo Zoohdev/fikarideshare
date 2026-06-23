@@ -249,7 +249,29 @@ class RideService:
 
             verification_code=otp_code,
         )
-       
+
+        # Mirror the organizer (whoever requested the ride) as a
+        # RideParticipant row too, is_organizer=True. This is additive -
+        # ride.rider/ride.verification_code stay the source of truth for
+        # permissions and the existing OTP flow, untouched. It just means
+        # participant-list-based logic (currently: fare split) has one
+        # consistent place to look instead of special-casing "the rider"
+        # separately from "everyone else in the car". RideSerializer
+        # excludes is_organizer=True from the public `participants` field,
+        # so this is invisible to existing API consumers.
+        RideParticipant.objects.create(
+            ride=ride,
+            user=rider,
+            is_organizer=True,
+            status=RideParticipant.Status.ACCEPTED,
+            pickup_location=ride.pickup_location,
+            pickup_address=ride.pickup_address,
+            dropoff_location=ride.dropoff_location,
+            dropoff_address=ride.dropoff_address,
+            estimated_distance_meters=ride.estimated_distance_meters,
+            pickup_code=otp_code,
+        )
+
         # If not scheduled, start searching for driver
         if not scheduled_time:
             ride.status = Ride.Status.SEARCHING
@@ -558,8 +580,10 @@ class RideService:
             )
        
         if ride.ride_type == 'shared':
-            # 1. Send to all joined co-passengers
-            for participant in ride.participants.all():
+            # 1. Send to all joined co-passengers (is_organizer=False - the
+            # rider already got this message above, and again just below;
+            # ride.participants now also contains their own mirrored row).
+            for participant in ride.participants.filter(is_organizer=False):
                 async_to_sync(self.channel_layer.group_send)(
                     f'user_{participant.user_id}',
                     {'type': 'ride_status', 'data': data}
