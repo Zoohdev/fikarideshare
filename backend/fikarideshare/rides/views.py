@@ -5,6 +5,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.decorators import action
 from django.shortcuts import get_object_or_404
 from django.db.models import Q
+from django.db import transaction
 from django.shortcuts import render
 from django.conf import settings
 from django.shortcuts import get_object_or_404
@@ -99,102 +100,87 @@ class RideViewSet(viewsets.ModelViewSet):
             )
             
             if open_pool:
-                # Calculate estimated distance for this leg
-                leg_estimate = service.estimate_fare(
-                    pickup_lat=data['pickup']['latitude'],
-                    pickup_lng=data['pickup']['longitude'],
-                    dropoff_lat=data['dropoff']['latitude'],
-                    dropoff_lng=data['dropoff']['longitude']
-                )
+                required_seats = data.get('passenger_count', 1)
                 pickup = Point(
                     data['pickup']['longitude'],
                     data['pickup']['latitude'],
                     srid=4326
                 )
-
                 dropoff = Point(
                     data['dropoff']['longitude'],
                     data['dropoff']['latitude'],
                     srid=4326
                 )
-                # Add participant to the matched pool route
-                existing_participant = RideParticipant.objects.filter(
-                    ride=open_pool,
-                    user=request.user
-                        ).first()
 
-                if existing_participant:
-                    return Response(
-                        {
-                            "error": "You already joined this ride."
-                        },
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
+                with transaction.atomic():
+                    # Re-fetch and lock the row - open_pool was read outside
+                    # any lock, so without this, two riders matching the
+                    # same last seat at once could both succeed.
+                    pool = Ride.objects.select_for_update().get(id=open_pool.id)
 
-                participant = RideParticipant.objects.create(
-                    ride=open_pool,
-                    user=request.user,
-                    pickup_location=pickup,
-                    dropoff_location=dropoff,
-                    status=RideParticipant.Status.ACCEPTED,
-                )
-                            
-                print("================================")
-                print("PARTICIPANT CREATED")
-                print("ID:", participant.id)
-                print("STATUS:", participant.status)
-                print("USER:", participant.user.id)
-                print("RIDE:", open_pool.id)
-                print("================================")
+                    lost_race = not pool.pool_open or pool.available_seats < required_seats
+                    already_joined = RideParticipant.objects.filter(
+                        ride=pool, user=request.user
+                    ).exists()
 
-                from channels.layers import get_channel_layer
-                from asgiref.sync import async_to_sync
+                    if already_joined:
+                        return Response(
+                            {"error": "You already joined this ride."},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
 
-                channel_layer = get_channel_layer()
+                    if not lost_race:
+                        participant = RideParticipant.objects.create(
+                            ride=pool,
+                            user=request.user,
+                            pickup_location=pickup,
+                            dropoff_location=dropoff,
+                            status=RideParticipant.Status.ACCEPTED,
+                        )
 
-                async_to_sync(channel_layer.group_send)(
-                    f"ride_{open_pool.id}",
-                    {
-                        "type": "pool_join_request",
-                        "participant_id": str(participant.id),
-                        "ride_id": str(open_pool.id),
+                        pool.available_seats -= required_seats
+                        if pool.available_seats <= 0:
+                            pool.pool_open = False
+                        pool.save(update_fields=['available_seats', 'pool_open'])
 
-                        "rider_name": request.user.full_name,
-                        "rider_id": str(request.user.id),
+                        from channels.layers import get_channel_layer
+                        from asgiref.sync import async_to_sync
 
-                        "pickup_address":
-                            participant.pickup_address,
+                        channel_layer = get_channel_layer()
+                        async_to_sync(channel_layer.group_send)(
+                            f"ride_{pool.id}",
+                            {
+                                "type": "pool_join_request",
+                                "participant_id": str(participant.id),
+                                "ride_id": str(pool.id),
+                                "rider_name": request.user.full_name,
+                                "rider_id": str(request.user.id),
+                                "pickup_address": participant.pickup_address,
+                                "dropoff_address": participant.dropoff_address,
+                                "seats": required_seats,
+                            }
+                        )
 
-                        "dropoff_address":
-                            participant.dropoff_address,
+                        service._broadcast_ride_update(
+                            pool,
+                            {
+                                'event': 'pool_request_pending',
+                                'participant_id': str(participant.id)
+                            }
+                        )
 
-                        "seats":
-                            data.get("passenger_count", 1),
-                    }
-                )
-                print("================================")
-                print("SENDING POOL REQUEST")
-                print("GROUP:", f"ride_{open_pool.id}")
-                print("PARTICIPANT:", participant.id)
-                print("STATUS:", participant.status)
-                print("================================")
-
-                # Update remaining capacity on vehicle
-                # open_pool.available_seats -= data.get('passenger_count', 1)
-                # if open_pool.available_seats <= 0:
-                #     open_pool.pool_open = False
-                # open_pool.save()
-                
-                # Trigger real-time WebSocket update to the driver app
-                service._broadcast_ride_update(
-                open_pool,
-                {
-                    'event': 'pool_request_pending',
-                    'participant_id': str(participant.id)
-                }
-            )
-                
-                return Response(RideSerializer(open_pool).data, status=status.HTTP_200_OK)
+                        return Response(
+                            {
+                                **RideSerializer(pool).data,
+                                "joined_existing_pool": True,
+                                "participant_id": str(participant.id),
+                                "pool_status": "pending_driver_approval",
+                            },
+                            status=status.HTTP_200_OK
+                        )
+                # Lost the race for the last seat between the initial match
+                # and acquiring the lock - fall through to creating a fresh
+                # (still poolable) ride instead of erroring the rider out.
         # --- POOLING LOGIC END ---
 
         service = RideService()
@@ -213,10 +199,13 @@ class RideViewSet(viewsets.ModelViewSet):
         )
        
         if success:
-            return Response(result, status=status.HTTP_201_CREATED)
+            return Response(
+                {**result, "joined_existing_pool": False},
+                status=status.HTTP_201_CREATED
+            )
         else:
             return Response(result, status=status.HTTP_400_BAD_REQUEST)
-   
+
     @action(detail=True, methods=['post'])
     def update_status(self, request, pk=None):
         """Update ride status."""
@@ -673,47 +662,46 @@ class CompleteRideView(APIView):
         try:
             ride = Ride.objects.get(id=ride_id, driver=request.user)
             service = RideService()
-            # success, result = service.update_ride_status(
-            #     ride=ride,
-            #     new_status=Ride.Status.COMPLETED,
-            #     actor=request.user,
-            #     data={}
-            # )
-            if ride.status != Ride.Status.IN_PROGRESS:
-                service.update_ride_status(
-                    ride=ride,
-                    new_status=Ride.Status.IN_PROGRESS,
-                    actor=request.user,
-                    data={}
-                )
-            
+            success, result = service.update_ride_status(
+                ride=ride,
+                new_status=Ride.Status.COMPLETED,
+                actor=request.user,
+                data={}
+            )
+
             if success:
                 if ride.ride_type == 'shared':
-                    from decimal import Decimal
-                    participants = ride.participants.all()
-                    
-                    # 1. Calculate the total combined distance of all individual legs
-                    # Includes the main rider's estimated distance + all participants
-                    total_leg_distance = ride.estimated_distance_meters or 1  # prevent division by zero
+                    from rides.services.pricing import FareSplitService
+
+                    participants = list(ride.participants.all())
+
+                    # ride.final_fare is the total for the whole vehicle trip
+                    # (set by _calculate_final_fare above) - it must stay the
+                    # grand total, not get overwritten with just one leg's
+                    # share (the previous version of this code did that).
+                    split_input = [{
+                        'user_id': str(ride.rider_id),
+                        'distance_meters': ride.estimated_distance_meters or 0,
+                    }] + [{
+                        'user_id': str(p.user_id),
+                        'distance_meters': p.estimated_distance_meters or 0,
+                    } for p in participants]
+
+                    split_result = FareSplitService().calculate_split(
+                        total_fare=ride.final_fare,
+                        participants=split_input,
+                        split_type='distance',
+                    )
+                    shares_by_user = {row['user_id']: row for row in split_result}
+
                     for p in participants:
-                        total_leg_distance += (p.estimated_distance_meters or 0)
-                    
-                    # 2. Proportional Split Logic
-                    gross_fare = ride.final_fare
-                    
-                    # Calculate Main Rider Share
-                    main_rider_ratio = Decimal(ride.estimated_distance_meters or 0) / Decimal(total_leg_distance)
-                    main_rider_fare = gross_fare * main_rider_ratio
-                    ride.final_fare = round(main_rider_fare, 2)
-                    ride.save()
-                    
-                    # Calculate Participant Shares
-                    for p in participants:
-                        participant_ratio = Decimal(p.estimated_distance_meters or 0) / Decimal(total_leg_distance)
-                        p.fare_amount = round(gross_fare * participant_ratio, 2)
+                        share = shares_by_user.get(str(p.user_id))
+                        if share:
+                            p.fare_amount = share['amount']
+                            p.fare_percentage = share['percentage']
                         p.status = RideParticipant.Status.DROPPED_OFF
                         p.save()
-                
+
                 return Response({'status': 'completed', 'ride_id': str(ride.id)}, status=status.HTTP_200_OK)
             else:
                 return Response(result, status=status.HTTP_400_BAD_REQUEST)

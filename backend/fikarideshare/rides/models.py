@@ -215,7 +215,7 @@ class RideParticipant(models.Model):
     Participants in a shared ride (fare splitting).
     Each participant has their own pickup/dropoff and fare portion.
     """
-   
+
     class Status(models.TextChoices):
         REQUESTED = 'requested', 'Requested'
         PENDING ='pending','Pending'
@@ -225,6 +225,7 @@ class RideParticipant(models.Model):
         WAITING_PICKUP = 'waiting_pickup'
         DECLINED = 'declined',
         PICKED_UP = 'picked_up'
+        DROPPED_OFF = 'dropped_off', 'Dropped Off'
         DRIVER_ASSIGNED = 'driver_assigned', 'Driver Assigned'
         DRIVER_ARRIVING = 'driver_arriving', 'Driver Arriving'
         ARRIVED = 'arrived', 'Driver Arrived'
@@ -259,7 +260,6 @@ class RideParticipant(models.Model):
     dropoff_address = models.TextField()
     estimated_distance_meters = models.PositiveIntegerField(null=True, blank=True)
     estimated_fare_contribution = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
-    pickup_code = models.CharField(max_length=6, blank=True, null=True)
     # Fare split
     fare_percentage = models.DecimalField(
         max_digits=5, 

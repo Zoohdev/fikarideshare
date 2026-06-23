@@ -1,5 +1,6 @@
 from typing import Dict, List, Tuple, Optional
 from decimal import Decimal
+import math
 from django.db import transaction
 from django.utils import timezone
 from django.contrib.gis.geos import Point
@@ -13,6 +14,20 @@ from .location import GoogleMapsService, DriverLocationService
 from .pricing import PricingService
 from asgiref.sync import async_to_sync
 
+
+def _bearing_degrees(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    """Compass bearing (0-360) from point 1 to point 2."""
+    lat1_r, lat2_r = math.radians(lat1), math.radians(lat2)
+    d_lng = math.radians(lng2 - lng1)
+    x = math.sin(d_lng) * math.cos(lat2_r)
+    y = math.cos(lat1_r) * math.sin(lat2_r) - math.sin(lat1_r) * math.cos(lat2_r) * math.cos(d_lng)
+    return (math.degrees(math.atan2(x, y)) + 360) % 360
+
+
+def _bearing_difference(bearing_a: float, bearing_b: float) -> float:
+    """Smallest angle (0-180) between two compass bearings."""
+    diff = abs(bearing_a - bearing_b) % 360
+    return min(diff, 360 - diff)
 
 
 class RideService:
@@ -32,6 +47,15 @@ class RideService:
         self.pricing = PricingService()
         self.channel_layer = get_channel_layer()
    
+    # Pools whose own pickup->dropoff bearing diverges from the candidate
+    # rider's by more than this are rejected, even if pickup/dropoff points
+    # both fall within MAX_POOL_PICKUP_DISTANCE_KM/MAX_POOL_DROPOFF_DISTANCE_KM -
+    # otherwise a rider heading the opposite direction can match just
+    # because their dropoff happens to land in the same radius.
+    MAX_POOL_BEARING_DIFF_DEGREES = 45
+    MAX_POOL_PICKUP_DISTANCE_KM = 3.5
+    MAX_POOL_DROPOFF_DISTANCE_KM = 6.0
+
     def find_compatible_shared_pool(self, pickup_lat: float, pickup_lng: float, dropoff_lat: float, dropoff_lng: float, required_seats: int):
         """
         Geospatial Convergence Matching Algorithm (Uber/Rapido Style)
@@ -39,27 +63,47 @@ class RideService:
         """
         from django.contrib.gis.geos import Point
         from django.contrib.gis.measure import D
-        from django.db.models import Q
-        
+        from django.contrib.gis.db.models.functions import Distance
+
         passenger_pickup = Point(pickup_lng, pickup_lat, srid=4326)
         passenger_dropoff = Point(dropoff_lng, dropoff_lat, srid=4326)
+        passenger_bearing = _bearing_degrees(pickup_lat, pickup_lng, dropoff_lat, dropoff_lng)
 
-        # 1. Query for rides that are shared, have seats, and are open for matching
+        # 1. Query for rides that are shared, have seats, and are open for matching,
+        # within range, ordered nearest-pickup-first.
         candidate_pools = Ride.objects.filter(
             ride_type='shared',
             pool_open=True,
             available_seats__gte=required_seats,
             status__in=[Ride.Status.SEARCHING, Ride.Status.DRIVER_ASSIGNED, Ride.Status.IN_PROGRESS]
-        )
+        ).filter(
+            pickup_location__distance_lte=(passenger_pickup, D(km=self.MAX_POOL_PICKUP_DISTANCE_KM)),
+            dropoff_location__distance_lte=(passenger_dropoff, D(km=self.MAX_POOL_DROPOFF_DISTANCE_KM))
+        ).annotate(
+            distance_to_pickup=Distance('pickup_location', passenger_pickup)
+        ).order_by('distance_to_pickup')[:10]
 
-        # 2. Filter pools where the new passenger's pickup is within 3.5km of the active route's pickup point
-        # AND the passenger's dropoff is within 6.0km of the active route's dropoff point (Directional Alignment)
-        matched_pool = candidate_pools.filter(
-            pickup_location__distance_lte=(passenger_pickup, D(km=3.5)),
-            dropoff_location__distance_lte=(passenger_dropoff, D(km=6.0))
-        ).first()
+        # 2. Directional alignment - reject pools heading a meaningfully
+        # different way even if both points fall within radius (a rider
+        # going the opposite direction can still land in-radius on a short
+        # trip). Pick the candidate whose own pickup->dropoff bearing is
+        # closest to the new rider's.
+        best_pool = None
+        best_diff = None
+        for pool in candidate_pools:
+            if not pool.pickup_location or not pool.dropoff_location:
+                continue
+            pool_bearing = _bearing_degrees(
+                pool.pickup_location.y, pool.pickup_location.x,
+                pool.dropoff_location.y, pool.dropoff_location.x,
+            )
+            diff = _bearing_difference(passenger_bearing, pool_bearing)
+            if diff > self.MAX_POOL_BEARING_DIFF_DEGREES:
+                continue
+            if best_diff is None or diff < best_diff:
+                best_pool, best_diff = pool, diff
 
-        return matched_pool
+        return best_pool
 
     def estimate_fare(
         self,
