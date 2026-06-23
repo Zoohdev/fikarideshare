@@ -26,7 +26,7 @@ import api from "../../services/api";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Location from "expo-location";
 import { Key } from "../../constants/key";
-import { MAP_THEME, LIVE_TRACKING_DELTA } from "../../constants/mapTheme";
+import { MAP_THEME, LIVE_TRACKING_DELTA, ROUTE_LINE_COLOR } from "../../constants/mapTheme";
 import { API_BASE_URL, WS_BASE_URL } from "../../constants/apiConfig";
 
 const API_BASE = `${API_BASE_URL}/rides/trips/`;
@@ -93,7 +93,7 @@ const MapSection = ({ currentLocation, destinationCoords, showMap, mapRef }) => 
             destination={destinationCoords}
             apikey={GOOGLE_MAPS_API_KEY}
             strokeWidth={5}
-            strokeColor="#ff8811"
+            strokeColor={ROUTE_LINE_COLOR}
             optimizeWaypoints={true}
             onReady={(result) => {
               mapRef.current.fitToCoordinates(result.coordinates, {

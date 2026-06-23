@@ -983,7 +983,7 @@ import MapViewDirections from 'react-native-maps-directions';
 import { useRouter } from "expo-router";
 import api from "../../../services/api";
 import { Key } from "../../../constants/key";
-import { MAP_THEME, LIVE_TRACKING_DELTA } from "../../../constants/mapTheme";
+import { MAP_THEME, LIVE_TRACKING_DELTA, ROUTE_LINE_COLOR } from "../../../constants/mapTheme";
 const GOOGLE_MAPS_API_KEY = Key.apiKey;
 const customMapTheme = MAP_THEME;
 
@@ -1055,7 +1055,7 @@ const MapSection = ({
             destination={destinationCoords}
             apikey={GOOGLE_MAPS_API_KEY}
             strokeWidth={5}
-            strokeColor="#ff8811"
+            strokeColor={ROUTE_LINE_COLOR}
             onReady={(result) => {
               mapRef.current.fitToCoordinates(
                 result.coordinates,

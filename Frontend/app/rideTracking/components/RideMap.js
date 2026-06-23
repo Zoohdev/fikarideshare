@@ -7,7 +7,7 @@ import MapViewDirections from "react-native-maps-directions";
 import AnimatedDriverMarker from "./AnimatedDriverMarker";
 import RiderProfileMarker from "./RiderProfileMarker";
 import { Key } from "../../../constants/key";
-import { getRegion } from "../../../constants/mapTheme";
+import { getRegion, ROUTE_LINE_COLOR } from "../../../constants/mapTheme";
 const GOOGLE_MAPS_API_KEY = Key.apiKey;
 
 const RideMap = ({
@@ -58,7 +58,7 @@ const RideMap = ({
             routeCoordinates
           }
           strokeWidth={5}
-          strokeColor="#FF6B00"
+          strokeColor={ROUTE_LINE_COLOR}
         />
       )}
 
@@ -93,7 +93,7 @@ const RideMap = ({
       destination={pickupCoordinate}
       apikey={GOOGLE_MAPS_API_KEY}
       strokeWidth={5}
-      strokeColor="#FF6B00"
+      strokeColor={ROUTE_LINE_COLOR}
       onReady={onRouteReady}
     />
 

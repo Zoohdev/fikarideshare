@@ -506,7 +506,7 @@ import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import api from "../../services/api";
 import { Key } from "../../constants/key";
-import { MAP_THEME, LIVE_TRACKING_DELTA } from "../../constants/mapTheme";
+import { MAP_THEME, LIVE_TRACKING_DELTA, ROUTE_LINE_COLOR } from "../../constants/mapTheme";
 import { WS_TRACKING_URL } from "../../constants/apiConfig";
 import AnimatedDriverMarker from "../rideTracking/components/AnimatedDriverMarker";
 
@@ -744,7 +744,7 @@ const StartRideScreen = () => {
               destination={waypoints[waypoints.length - 1]}
               apikey={GOOGLE_MAPS_API_KEY}
               strokeWidth={5}
-              strokeColor="#FF8811"
+              strokeColor={ROUTE_LINE_COLOR}
               optimizeWaypoints={false}
               onReady={(result) => setEtaMinutes(Math.ceil(result.duration))}
             />

@@ -12,7 +12,7 @@ import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { Audio } from 'expo-av';
 import api from '../../services/api';
 import { Key } from '../../constants/key';
-import { MAP_THEME, LIVE_TRACKING_DELTA } from '../../constants/mapTheme';
+import { MAP_THEME, LIVE_TRACKING_DELTA, ROUTE_LINE_COLOR } from '../../constants/mapTheme';
 import { WS_TRACKING_URL, WS_SOS_BASE_URL } from '../../constants/apiConfig';
 import AnimatedDriverMarker from './components/AnimatedDriverMarker';
 
@@ -1039,7 +1039,7 @@ async () => {
               destination={{ latitude: safePickupLat, longitude: safePickupLng }}
               apikey={GOOGLE_MAPS_APIKEY}
               strokeWidth={5}
-              strokeColor="#FF8811"
+              strokeColor={ROUTE_LINE_COLOR}
               onReady={(result) => {
 
                 if (routeFitDone.current)
@@ -1073,7 +1073,7 @@ async () => {
               destination={{ latitude: parseFloat(destination.latitude), longitude: parseFloat(destination.longitude) }}
               apikey={GOOGLE_MAPS_APIKEY}
               strokeWidth={4}
-              strokeColor="#FF8811"
+              strokeColor={ROUTE_LINE_COLOR}
               optimizeWaypoints={false}
               onReady={(result) => {
 

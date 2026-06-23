@@ -562,7 +562,7 @@ import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 
 import api from '../../services/api';
 import { Key } from '../../constants/key';
-import { MAP_THEME, LIVE_TRACKING_DELTA } from '../../constants/mapTheme';
+import { MAP_THEME, LIVE_TRACKING_DELTA, ROUTE_LINE_COLOR } from '../../constants/mapTheme';
 import { WS_TRACKING_URL } from '../../constants/apiConfig';
 import AnimatedDriverMarker from '../rideTracking/components/AnimatedDriverMarker';
 
@@ -832,7 +832,7 @@ export default function ActiverideScreen() {
             destination={{ latitude: destination.latitude, longitude: destination.longitude }}
             apikey={GOOGLE_MAPS_APIKEY}
             strokeWidth={5}
-            strokeColor="#ff8811"
+            strokeColor={ROUTE_LINE_COLOR}
             optimizeWaypoints={false}
           />
         )}

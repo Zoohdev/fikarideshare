@@ -21,7 +21,7 @@ import * as Location from 'expo-location';
 import { Audio } from 'expo-av';
 import api from '../../services/api';
 import { Key } from '../../constants/key';
-import { MAP_THEME, LIVE_TRACKING_DELTA } from '../../constants/mapTheme';
+import { MAP_THEME, LIVE_TRACKING_DELTA, ROUTE_LINE_COLOR } from '../../constants/mapTheme';
 import { WS_TRACKING_URL, WS_SOS_BASE_URL } from '../../constants/apiConfig';
 import AnimatedDriverMarker from './components/AnimatedDriverMarker';
 
@@ -354,7 +354,7 @@ export default function RiderInTripScreen() {
               apikey={GOOGLE_MAPS_APIKEY}
               mode="DRIVING"
               strokeWidth={6}
-              strokeColor="#FF8811"
+              strokeColor={ROUTE_LINE_COLOR}
               resetOnChange={false}
               onReady={(result) => {
                 setEtaMinutes(Math.ceil(result.duration));
