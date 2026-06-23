@@ -63,7 +63,8 @@ class RideViewSet(viewsets.ModelViewSet):
    
     permission_classes = [IsAuthenticated]
     serializer_class = RideSerializer
-   
+    filterset_fields = ['status', 'ride_type']
+
     def get_queryset(self):
         user = self.request.user
         return Ride.objects.filter(
