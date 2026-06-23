@@ -9,6 +9,9 @@
 // https://docs.expo.dev/guides/environment-variables/
 export const Key = {
   apiKey: process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY || 'YOUR GOOGLE MAP API KEY HERE',
+  // Publishable key only - safe to ship in the client bundle. Must match
+  // whichever Stripe account STRIPE_SECRET_KEY (backend .env) belongs to.
+  stripePublishableKey: process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY || '',
 };
 
 export default Key;

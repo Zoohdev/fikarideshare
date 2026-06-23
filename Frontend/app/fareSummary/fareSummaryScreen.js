@@ -1,11 +1,15 @@
-import React, { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Animated, SafeAreaView } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Animated, SafeAreaView, ActivityIndicator, Alert } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import api from '../../services/api';
 
 export default function FareSummaryScreen() {
-    const { fare } = useLocalSearchParams();
+    const { fare, rideId, role } = useLocalSearchParams();
     const router = useRouter();
+    const isDriver = role === 'driver';
+    const [paying, setPaying] = useState(false);
+    const [paid, setPaid] = useState(false);
 
     // Animation values
     const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -20,10 +24,28 @@ export default function FareSummaryScreen() {
         ]).start();
     }, []);
 
-    const handlePayment = () => {
-        // Future Payment API Integration Here
-        alert("Payment Gateway Integration Pending");
-        router.replace('/homeScreen'); // Return to main menu
+    const handlePayment = async () => {
+        if (!rideId) {
+            Alert.alert("Error", "We couldn't tell which ride this fare is for.");
+            return;
+        }
+
+        setPaying(true);
+        try {
+            const response = await api.post('/payments/charge/', { amount: fare, ride_id: rideId });
+
+            if (response.status === 202) {
+                Alert.alert("Authentication required", "Your card needs additional verification - please try a different card from your wallet.");
+                return;
+            }
+
+            setPaid(true);
+        } catch (error) {
+            console.error("Error charging ride fare:", error);
+            Alert.alert("Payment failed", error.response?.data?.error || "Could not charge your saved card. Add a payment method and try again.");
+        } finally {
+            setPaying(false);
+        }
     };
 
     return (
@@ -37,28 +59,46 @@ export default function FareSummaryScreen() {
                 <Animated.Text style={[styles.headerText, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
                     Ride Completed!
                 </Animated.Text>
-                
+
                 <Animated.Text style={[styles.subText, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
-                    Thank you for riding with us. Here is your final summary.
+                    {isDriver
+                        ? "Nice work. Here's what this trip earned."
+                        : "Thank you for riding with us. Here is your final summary."}
                 </Animated.Text>
 
                 <Animated.View style={[styles.fareCard, { opacity: fadeAnim, transform: [{ scale: scaleAnim }] }]}>
-                    <Text style={styles.fareLabel}>Total Amount Due</Text>
+                    <Text style={styles.fareLabel}>{isDriver ? "Trip Fare" : "Total Amount Due"}</Text>
                     <Text style={styles.fareAmount}>R {parseFloat(fare || 0).toFixed(2)}</Text>
                     <View style={styles.divider} />
                     <View style={styles.fareRow}>
                         <Text style={styles.fareRowText}>Payment Method</Text>
-                        <Text style={styles.fareRowValue}>Cash / Card</Text>
+                        <Text style={styles.fareRowValue}>{paid ? "Card - Paid" : "Saved card"}</Text>
                     </View>
                 </Animated.View>
 
             </View>
 
             <Animated.View style={[styles.footer, { opacity: fadeAnim }]}>
-                <TouchableOpacity style={styles.payButton} onPress={handlePayment}>
-                    <Text style={styles.payButtonText}>Proceed to Payment</Text>
-                    <Ionicons name="arrow-forward" size={20} color="#fff" style={{marginLeft: 10}} />
-                </TouchableOpacity>
+                {isDriver || paid ? (
+                    <TouchableOpacity
+                        style={styles.payButton}
+                        onPress={() => router.replace(isDriver ? '/(driverTabs)/home/homeScreen' : '/(tabs)/home/homeScreen')}
+                    >
+                        <Text style={styles.payButtonText}>{paid ? "Done" : "Back to home"}</Text>
+                        <Ionicons name="arrow-forward" size={20} color="#fff" style={{marginLeft: 10}} />
+                    </TouchableOpacity>
+                ) : (
+                    <TouchableOpacity style={styles.payButton} onPress={handlePayment} disabled={paying}>
+                        {paying ? (
+                            <ActivityIndicator color="#fff" />
+                        ) : (
+                            <>
+                                <Text style={styles.payButtonText}>Proceed to Payment</Text>
+                                <Ionicons name="arrow-forward" size={20} color="#fff" style={{marginLeft: 10}} />
+                            </>
+                        )}
+                    </TouchableOpacity>
+                )}
             </Animated.View>
         </SafeAreaView>
     );

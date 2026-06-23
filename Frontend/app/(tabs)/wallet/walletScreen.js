@@ -1,5 +1,5 @@
 import { ScrollView, StyleSheet, Text, View, Image,TouchableOpacity } from "react-native";
-import React from "react";
+import React, { useState, useEffect } from "react";
 import {
   Colors,
   Sizes,
@@ -10,10 +10,25 @@ import {
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import { useNavigation } from "expo-router";
+import { useIsFocused } from "@react-navigation/native";
+import api from "../../../services/api";
 
 const WalletScreen = () => {
 
   const navigation = useNavigation();
+  const isFocused = useIsFocused();
+  const [balance, setBalance] = useState(null);
+  const [currency, setCurrency] = useState("USD");
+
+  useEffect(() => {
+    if (!isFocused) return;
+    api.get("/payments/wallet/")
+      .then((response) => {
+        setBalance(response.data?.balance);
+        setCurrency(response.data?.currency || "USD");
+      })
+      .catch((error) => console.error("Error fetching wallet balance:", error));
+  }, [isFocused]);
 
   return (
     <View style={{ flex: 1, backgroundColor: Colors.bodyBackColor }}>
@@ -34,7 +49,9 @@ const WalletScreen = () => {
     return (
       <View style={styles.balanceInfoWrapper}>
         <View style={{ alignItems: "center", margin: Sizes.fixPadding * 4.0 }}>
-          <Text style={{ ...Fonts.primaryColor30Medium }}>$150</Text>
+          <Text style={{ ...Fonts.primaryColor30Medium }}>
+            {balance !== null ? `${Number(balance).toFixed(2)} ${currency}` : "..."}
+          </Text>
           <Text style={{ ...Fonts.grayColor18Medium }}>Available balance</Text>
         </View>
 

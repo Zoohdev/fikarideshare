@@ -4,8 +4,10 @@ import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 import { AppState, LogBox, StatusBar } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { StripeProvider } from '@stripe/stripe-react-native';
 import { useLocationSocket } from "../services/socketService";
 import { ProfileProvider } from './context/ProfileContext';
+import { Key } from '../constants/key';
 
 LogBox.ignoreAllLogs();
 
@@ -40,6 +42,7 @@ export default function RootLayout() {
   }
 
   return (
+    <StripeProvider publishableKey={Key.stripePublishableKey} urlScheme="myapp">
     <ProfileProvider>
       <GestureHandlerRootView>
         <Stack screenOptions={{ headerShown: false, animation: 'ios_from_right' }}>
@@ -88,5 +91,6 @@ export default function RootLayout() {
         </Stack>
       </GestureHandlerRootView>
     </ProfileProvider>
+    </StripeProvider>
   );
 }

@@ -604,9 +604,9 @@ setDriverLocation({
   useEffect(() => {
     if (completedFare !== null) {
       setTimeout(() => {
-        router.replace({ 
-          pathname: '/fareSummary/fareSummaryScreen', 
-          params: { fare: completedFare } 
+        router.replace({
+          pathname: '/fareSummary/fareSummaryScreen',
+          params: { fare: completedFare, rideId, role }
         });
       }, 100);
     }

@@ -15,7 +15,7 @@ const SuccessfullyAddAndSendScreen = () => {
 
   const navigation = useNavigation();
 
-  const { successFor } = useLocalSearchParams();
+  const { successFor, amount } = useLocalSearchParams();
 
   const backAction = () => {
     navigation.push("(tabs)");
@@ -69,7 +69,7 @@ const SuccessfullyAddAndSendScreen = () => {
             marginTop: Sizes.fixPadding + 8.0,
           }}
         >
-          $150.00 {successFor == "money" ? "added" : "sended"}
+          ${Number(amount || 0).toFixed(2)} {successFor == "money" ? "added" : "sended"}
         </Text>
         <Text
           style={{

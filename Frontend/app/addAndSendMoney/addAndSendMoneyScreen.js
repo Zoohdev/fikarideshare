@@ -7,7 +7,7 @@ import {
   TextInput,
   TouchableOpacity,
 } from "react-native";
-import React from "react";
+import React, { useState } from "react";
 import {
   Colors,
   screenWidth,
@@ -24,6 +24,7 @@ const AddAndSendMoneyScreen = () => {
   const navigation = useNavigation();
 
   const { addFor } = useLocalSearchParams();
+  const [amount, setAmount] = useState("");
 
   return (
     <View style={{ flex: 1, backgroundColor: Colors.bodyBackColor }}>
@@ -51,8 +52,8 @@ const AddAndSendMoneyScreen = () => {
         activeOpacity={0.8}
         onPress={() => {
           addFor == "money"
-            ? navigation.push("paymentMethods/paymentMethodsScreen")
-            : navigation.push("bankInfo/bankInfoScreen");
+            ? navigation.push("paymentMethods/paymentMethodsScreen", { amount })
+            : navigation.push("bankInfo/bankInfoScreen", { amount });
         }}
         style={{
           ...CommonStyles.button,
@@ -89,6 +90,8 @@ const AddAndSendMoneyScreen = () => {
             selectionColor={Colors.primaryColor}
             cursorColor={Colors.primaryColor}
             keyboardType="numeric"
+            value={amount}
+            onChangeText={setAmount}
           />
         </View>
       </View>
