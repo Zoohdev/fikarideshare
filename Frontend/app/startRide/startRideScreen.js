@@ -606,6 +606,18 @@ const StartRideScreen = () => {
               setHasUnread(true);
             }
           }
+
+          if (data.type === "route_updated") {
+            // Pushed whenever the participant set changes (e.g. a pool
+            // match while still waiting to pick up the first rider) -
+            // refreshes pending stops without waiting for the next
+            // driverLocation-driven poll.
+            setPendingStops(data.optimized_route);
+            setWaypoints(data.optimized_route.map(stop => ({
+              latitude: stop.latitude,
+              longitude: stop.longitude
+            })));
+          }
         } catch (err) {
           console.error("Failed to parse socket message", err);
         }

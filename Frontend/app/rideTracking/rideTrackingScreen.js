@@ -362,9 +362,17 @@ const locLng =
             );
           
             setPoolRequest(parsedMessage);
-          
+
             setPoolRequestVisible(true);
-          
+
+            break;
+
+          case "route_updated":
+            // Pushed by the backend whenever the participant set changes
+            // (match/accept/decline/pickup/dropoff) - updates the route
+            // immediately instead of waiting for the next location-driven
+            // poll or an explicit fetchRideDetails() call.
+            setWaypoints(parsedMessage.optimized_route);
             break;
 
           case 'ride_status':
