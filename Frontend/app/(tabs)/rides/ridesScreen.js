@@ -15,10 +15,7 @@ import MaterialIcons from "react-native-vector-icons/MaterialIcons";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import { useNavigation } from "expo-router";
 import { useIsFocused } from "@react-navigation/native";
-import axios from "axios";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-
-const API_BASE = "http://10.45.0.194:3000"; // Localhost for Android emulator
+import api from "../../../services/api";
 
 const RidesScreen = () => {
   const navigation = useNavigation();
@@ -27,8 +24,7 @@ const RidesScreen = () => {
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [pagination, setPagination] = useState({
-    limit: 20,
-    offset: 0,
+    page: 1,
     hasMore: true,
     total: 0,
   });
@@ -46,49 +42,31 @@ const RidesScreen = () => {
         setLoading(true);
       }
 
+      const currentPage = reset ? 1 : pagination.page;
 
-      let riderId = await AsyncStorage.getItem("riderId");
-     
-      if (!riderId) {
-        console.error("No rider ID found");
-        setLoading(false);
-        return;
-      }
-
-      const currentOffset = reset ? 0 : pagination.offset;
-      const url = `${API_BASE}/api/rides/riders/${riderId}/trips`;
-      
-     
-
-      const response = await axios.get(url, {
+      // GET /api/rides/trips/ already scopes to the logged-in user (as
+      // rider, driver, or pooled participant) via the JWT - no riderId
+      // needed. DRF page-number pagination: {count, next, previous, results}.
+      const response = await api.get("/rides/trips/", {
         params: {
           status: statusFilter || undefined,
-          limit: pagination.limit,
-          offset: currentOffset,
+          page: currentPage,
         },
       });
 
-      if (response.data.success) {
-        const { trips, pagination: paginationData } = response.data.data;
-        
-        if (reset) {
-          setRides(trips);
-          setPagination({
-            limit: paginationData.limit,
-            offset: paginationData.offset + trips.length,
-            hasMore: paginationData.hasMore,
-            total: paginationData.total,
-          });
-        } else {
-          setRides((prevRides) => [...prevRides, ...trips]);
-          setPagination({
-            limit: paginationData.limit,
-            offset: paginationData.offset + trips.length,
-            hasMore: paginationData.hasMore,
-            total: paginationData.total,
-          });
-        }
+      const { count, next, results } = response.data;
+
+      if (reset) {
+        setRides(results);
+      } else {
+        setRides((prevRides) => [...prevRides, ...results]);
       }
+
+      setPagination({
+        page: currentPage + 1,
+        hasMore: Boolean(next),
+        total: count,
+      });
     } catch (error) {
       console.error("Error fetching rides:", error);
     } finally {
@@ -136,14 +114,14 @@ const RidesScreen = () => {
     });
   };
 
-  const getTripTypeIcon = (tripType) => {
-    switch(tripType?.toLowerCase()) {
-      case "uberx":
-        return "car";
-      case "uberxl":
+  const getTripTypeIcon = (vehicleType) => {
+    switch (vehicleType?.toLowerCase()) {
+      case "xl":
         return "bus";
-      case "comfort":
+      case "premium":
         return "car-sports";
+      case "comfort":
+        return "directions-car";
       default:
         return "car";
     }
@@ -210,13 +188,13 @@ const RidesScreen = () => {
                 marginLeft: Sizes.fixPadding - 5,
               }}
             >
-              {formatDate(item.created_at)}
+              {formatDate(item.requested_at)}
             </Text>
           </View>
           <View style={styles.priceContainer}>
             <Text style={{ ...Fonts.grayColor11Medium }}>Total</Text>
             <Text style={{ ...Fonts.primaryColor18Bold, marginTop: 2 }}>
-              ${item.total_amount?.toFixed(2) || "0.00"}
+              ${Number(item.final_fare ?? item.estimated_fare ?? 0).toFixed(2)}
             </Text>
           </View>
         </View>
@@ -232,7 +210,7 @@ const RidesScreen = () => {
                 marginLeft: Sizes.fixPadding,
               }}
             >
-              {item.pickup_location}
+              {item.pickup_address}
             </Text>
           </View>
 
@@ -250,7 +228,7 @@ const RidesScreen = () => {
                 marginLeft: Sizes.fixPadding,
               }}
             >
-              {item.dropoff_location}
+              {item.dropoff_address}
             </Text>
           </View>
         </View>
@@ -264,13 +242,13 @@ const RidesScreen = () => {
                 marginLeft: Sizes.fixPadding - 5,
               }}
             >
-              {formatTime(item.created_at)}
+              {formatTime(item.requested_at)}
             </Text>
             <View style={styles.footerDivider} />
-            <MaterialIcons 
-              name={getTripTypeIcon(item.tripType)} 
-              color={Colors.grayColor} 
-              size={14} 
+            <MaterialIcons
+              name={getTripTypeIcon(item.vehicle_type_requested)}
+              color={Colors.grayColor}
+              size={14}
             />
             <Text
               style={{
@@ -279,12 +257,12 @@ const RidesScreen = () => {
                 textTransform: "capitalize",
               }}
             >
-              {item.tripType || "UberX"}
+              {item.vehicle_type_requested || "Economy"}
             </Text>
             <View style={styles.footerDivider} />
-            <View style={styles.statusBadge(item.trip_status)}>
-              <Text style={styles.statusText(item.trip_status)}>
-                {item.trip_status?.toUpperCase()}
+            <View style={styles.statusBadge(item.status)}>
+              <Text style={styles.statusText(item.status)}>
+                {item.status?.replaceAll("_", " ").toUpperCase()}
               </Text>
             </View>
           </View>

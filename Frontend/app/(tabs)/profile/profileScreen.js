@@ -7,16 +7,52 @@ import {
   TouchableOpacity,
   Modal,
 } from "react-native";
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Colors, Fonts, Sizes, CommonStyles } from "../../../constants/styles";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import { useNavigation } from "expo-router";
+import { useIsFocused } from "@react-navigation/native";
+import * as SecureStore from "expo-secure-store";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useProfile } from "../../context/ProfileContext";
+import { API_HOST } from "../../../constants/apiConfig";
 
 const ProfileScreen = () => {
 
   const navigation = useNavigation();
+  const isFocused = useIsFocused();
+  const { profileData, fetchProfileDetails, clearProfileData } = useProfile();
 
   const [showLogoutDialog, setshowLogoutDialog] = useState(false);
+
+  useEffect(() => {
+    if (isFocused) {
+      fetchProfileDetails();
+    }
+  }, [isFocused]);
+
+  const avatarUrl = profileData?.profile_photo
+    ? (profileData.profile_photo.startsWith("http")
+        ? profileData.profile_photo
+        : `http://${API_HOST}${profileData.profile_photo}`)
+    : null;
+
+  const memberSince = profileData?.created_at
+    ? new Date(profileData.created_at).toLocaleDateString("en-US", { month: "long", year: "numeric" })
+    : null;
+
+  const handleLogout = async () => {
+    setshowLogoutDialog(false);
+    try {
+      await SecureStore.deleteItemAsync("userToken");
+      await SecureStore.deleteItemAsync("refreshToken");
+      await AsyncStorage.multiRemove(["userData", "userId", "token"]);
+    } catch (error) {
+      console.error("Error clearing session:", error);
+    }
+    clearProfileData();
+    navigation.push("auth/loginScreen");
+  };
 
   return (
     <View style={{ flex: 1, backgroundColor: Colors.bodyBackColor }}>
@@ -73,10 +109,7 @@ const ProfileScreen = () => {
                 <View style={{ backgroundColor: Colors.whiteColor, width: 2.0 }} />
                 <TouchableOpacity
                   activeOpacity={0.8}
-                  onPress={() => {
-                    setshowLogoutDialog(false);
-                    navigation.push("auth/loginScreen");
-                  }}
+                  onPress={handleLogout}
                   style={styles.dialogButton}
                 >
                   <Text style={{ ...Fonts.whiteColor18SemiBold }}>Logout</Text>
@@ -244,30 +277,71 @@ const ProfileScreen = () => {
 
   function profileInfo() {
     return (
-      <View
-        style={{
-          ...CommonStyles.rowAlignCenter,
-          margin: Sizes.fixPadding * 2.0,
-        }}
-      >
-        <Image
-          source={require("../../../assets/images/user/user1.jpeg")}
-          style={{ width: 70.0, height: 70.0, borderRadius: 35.0 }}
-        />
-        <View style={{ flex: 1, marginHorizontal: Sizes.fixPadding + 3.0 }}>
-          <Text style={{ ...Fonts.blackColor17SemiBold }}>John Wilson</Text>
-          <Text style={{ ...Fonts.grayColor16SemiBold }}>
-            johnwilson@mail.com
-          </Text>
-        </View>
-        <MaterialCommunityIcons
-          name="square-edit-outline"
-          color={Colors.secondaryColor}
-          size={24}
-          onPress={() => {
-            navigation.push("editProfile/editProfileScreen");
+      <View>
+        <View
+          style={{
+            ...CommonStyles.rowAlignCenter,
+            margin: Sizes.fixPadding * 2.0,
           }}
-        />
+        >
+          <Image
+            source={avatarUrl ? { uri: avatarUrl } : require("../../../assets/images/user/user1.jpeg")}
+            style={{ width: 70.0, height: 70.0, borderRadius: 35.0 }}
+          />
+          <View style={{ flex: 1, marginHorizontal: Sizes.fixPadding + 3.0 }}>
+            <Text style={{ ...Fonts.blackColor17SemiBold }}>
+              {profileData?.full_name || "Loading..."}
+            </Text>
+            <Text style={{ ...Fonts.grayColor16SemiBold }}>
+              {profileData?.email || ""}
+            </Text>
+          </View>
+          <MaterialCommunityIcons
+            name="square-edit-outline"
+            color={Colors.secondaryColor}
+            size={24}
+            onPress={() => {
+              navigation.push("editProfile/editProfileScreen");
+            }}
+          />
+        </View>
+
+        {profileData && (
+          <View style={styles.detailsCard}>
+            <View style={styles.detailsRow}>
+              <MaterialCommunityIcons name="phone-outline" size={16} color={Colors.grayColor} />
+              <Text style={styles.detailsText}>{profileData.phone_number}</Text>
+            </View>
+            <View style={styles.detailsRow}>
+              <MaterialCommunityIcons name="star" size={16} color={Colors.secondaryColor} />
+              <Text style={styles.detailsText}>
+                {Number(profileData.average_rating).toFixed(1)} rating ({profileData.total_ratings} ratings)
+              </Text>
+            </View>
+            <View style={styles.detailsRow}>
+              <MaterialCommunityIcons
+                name={profileData.is_verified ? "shield-check" : "shield-alert-outline"}
+                size={16}
+                color={profileData.is_verified ? Colors.greenColor : Colors.redColor}
+              />
+              <Text style={styles.detailsText}>
+                {profileData.is_verified ? "Verified account" : `KYC: ${profileData.kyc_status?.replaceAll("_", " ")}`}
+              </Text>
+            </View>
+            <View style={styles.detailsRow}>
+              <MaterialCommunityIcons name="account-outline" size={16} color={Colors.grayColor} />
+              <Text style={styles.detailsText}>
+                {profileData.user_type?.charAt(0).toUpperCase() + profileData.user_type?.slice(1)}
+              </Text>
+            </View>
+            {memberSince && (
+              <View style={styles.detailsRow}>
+                <MaterialCommunityIcons name="calendar-outline" size={16} color={Colors.grayColor} />
+                <Text style={styles.detailsText}>Member since {memberSince}</Text>
+              </View>
+            )}
+          </View>
+        )}
       </View>
     );
   }
@@ -291,6 +365,23 @@ const ProfileScreen = () => {
 export default ProfileScreen;
 
 const styles = StyleSheet.create({
+  detailsCard: {
+    backgroundColor: Colors.whiteColor,
+    marginHorizontal: Sizes.fixPadding * 2.0,
+    marginBottom: Sizes.fixPadding * 2.0,
+    borderRadius: Sizes.fixPadding,
+    padding: Sizes.fixPadding + 5.0,
+    ...CommonStyles.shadow,
+  },
+  detailsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: Sizes.fixPadding - 5.0,
+  },
+  detailsText: {
+    ...Fonts.grayColor14Medium,
+    marginLeft: Sizes.fixPadding,
+  },
   dialogButton: {
     flex: 1,
     backgroundColor: Colors.secondaryColor,

@@ -16,10 +16,32 @@ import MaterialIcons from "react-native-vector-icons/MaterialIcons";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import { useNavigation } from "@react-navigation/native";
 import { useIsFocused } from "@react-navigation/native";
-import axios from "axios";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import api from "../../../services/api";
+import { API_HOST } from "../../../constants/apiConfig";
 
-const API_BASE = "http://192.168.0.103:3000"; // Localhost for Android emulator
+const formatDate = (dateString) => {
+  if (!dateString) return "Date not available";
+  const date = new Date(dateString);
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  if (date.toDateString() === today.toDateString()) {
+    return "Today";
+  } else if (date.toDateString() === yesterday.toDateString()) {
+    return "Yesterday";
+  }
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: date.getFullYear() !== today.getFullYear() ? "numeric" : undefined,
+  });
+};
+
+const resolvePhotoUrl = (path) => {
+  if (!path) return null;
+  return path.startsWith("http") ? path : `http://${API_HOST}${path}`;
+};
 
 const RidesScreen = () => {
     const navigation = useNavigation();
@@ -28,8 +50,7 @@ const RidesScreen = () => {
     const [loading, setLoading] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
     const [pagination, setPagination] = useState({
-      limit: 20,
-      offset: 0,
+      page: 1,
       hasMore: true,
       total: 0,
     });
@@ -47,82 +68,34 @@ const RidesScreen = () => {
       setLoading(true);
     }
 
-    let driverId = await AsyncStorage.getItem("driverId");
-    console.log("driverId:", driverId);
-    
-    if (!driverId) {
-      console.error("No driver ID found");
-      setLoading(false);
-      return;
-    }
-    
-    const currentOffset = reset ? 0 : pagination.offset;
-    const url = `${API_BASE}/api/driverHistory/driver/${driverId}/history`;
-    console.log("url", url);
-    
-    const response = await axios.get(url, {
+    const currentPage = reset ? 1 : pagination.page;
+
+    // GET /api/rides/trips/ already scopes to the logged-in driver via the
+    // JWT (rider OR driver OR participant) - no driverId needed.
+    const response = await api.get("/rides/trips/", {
       params: {
         status: statusFilter || undefined,
-        limit: pagination.limit,
-        offset: currentOffset,
+        page: currentPage,
       },
     });
-    
-    if (response.data.success) {
-      const { trips, pagination: paginationData } = response.data.data;
-      
-      // Ensure trips is always an array
-      const tripsArray = Array.isArray(trips) ? trips : [];
-      
-      // Check if paginationData exists before accessing its properties
-      if (paginationData) {
-        if (reset) {
-          setRides(tripsArray);
-          setPagination({
-            limit: paginationData.limit || pagination.limit,
-            offset: tripsArray.length,
-            hasMore: paginationData.hasMore !== undefined ? paginationData.hasMore : true,
-            total: paginationData.total || 0,
-          });
-        } else {
-          setRides((prevRides) => {
-            const prevArray = Array.isArray(prevRides) ? prevRides : [];
-            return [...prevArray, ...tripsArray];
-          });
-          setPagination({
-            limit: paginationData.limit || pagination.limit,
-            offset: (paginationData.offset || 0) + tripsArray.length,
-            hasMore: paginationData.hasMore !== undefined ? paginationData.hasMore : false,
-            total: paginationData.total || pagination.total,
-          });
-        }
-      } else {
-        // Handle case when no pagination data is returned
-        if (reset) {
-          setRides(tripsArray);
-          setPagination({
-            ...pagination,
-            offset: tripsArray.length,
-            hasMore: tripsArray.length === pagination.limit,
-          });
-        } else {
-          setRides((prevRides) => {
-            const prevArray = Array.isArray(prevRides) ? prevRides : [];
-            return [...prevArray, ...tripsArray];
-          });
-          setPagination({
-            ...pagination,
-            offset: pagination.offset + tripsArray.length,
-            hasMore: tripsArray.length === pagination.limit,
-          });
-        }
-      }
+
+    const { count, next, results } = response.data;
+    const tripsArray = Array.isArray(results) ? results : [];
+
+    if (reset) {
+      setRides(tripsArray);
     } else {
-      // If response indicates failure, ensure rides is an empty array
-      if (reset) {
-        setRides([]);
-      }
+      setRides((prevRides) => {
+        const prevArray = Array.isArray(prevRides) ? prevRides : [];
+        return [...prevArray, ...tripsArray];
+      });
     }
+
+    setPagination({
+      page: currentPage + 1,
+      hasMore: Boolean(next),
+      total: count,
+    });
   } catch (error) {
     console.error('Error loading trips:', error);
     // On error, ensure rides is still an array
@@ -143,25 +116,6 @@ const RidesScreen = () => {
   const loadMore = () => {
     if (!loading && pagination.hasMore) {
       fetchRides(false);
-    }
-  };
-
-  const formatDate = (dateString) => {
-    const date = new Date(dateString);
-    const today = new Date();
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-    
-    if (date.toDateString() === today.toDateString()) {
-      return "Today";
-    } else if (date.toDateString() === yesterday.toDateString()) {
-      return "Yesterday";
-    } else {
-      return date.toLocaleDateString("en-US", { 
-        month: "short", 
-        day: "numeric",
-        year: date.getFullYear() !== today.getFullYear() ? "numeric" : undefined
-      });
     }
   };
 
@@ -247,40 +201,44 @@ const TripCard = ({ trip }) => {
     >
       <View style={styles.cardHeader}>
         <View style={styles.riderInfo}>
-          <Image 
-            source={trip.riderImage ? { uri: trip.riderImage } : require("../../../assets/images/user/user3.png")}
+          <Image
+            source={
+              resolvePhotoUrl(trip.rider?.profile_photo)
+                ? { uri: resolvePhotoUrl(trip.rider?.profile_photo) }
+                : require("../../../assets/images/user/user3.png")
+            }
             style={styles.avatar}
           />
-          <Text style={styles.riderName}>{trip.riderName || 'Unknown Rider'}</Text>
+          <Text style={styles.riderName}>{trip.rider?.full_name || 'Unknown Rider'}</Text>
         </View>
         <View style={[
           styles.statusBadge,
           trip.status === 'completed' ? styles.completedBadge : styles.cancelledBadge
         ]}>
-          <Text style={styles.statusText}>{trip.status || 'unknown'}</Text>
+          <Text style={styles.statusText}>{trip.status?.replaceAll('_', ' ') || 'unknown'}</Text>
         </View>
       </View>
 
       <View style={styles.locationContainer}>
         <View style={styles.locationRow}>
           <View style={[styles.dot, { backgroundColor: Colors.greenColor }]} />
-          <Text style={styles.locationText} numberOfLines={1}>{trip.pickup || 'Pickup location not available'}</Text>
+          <Text style={styles.locationText} numberOfLines={1}>{trip.pickup_address || 'Pickup location not available'}</Text>
         </View>
-        
+
         <View style={styles.dashedLine} />
-        
+
         <View style={styles.locationRow}>
           <View style={[styles.dot, { backgroundColor: Colors.redColor }]} />
-          <Text style={styles.locationText} numberOfLines={1}>{trip.dropoff || 'Dropoff location not available'}</Text>
+          <Text style={styles.locationText} numberOfLines={1}>{trip.dropoff_address || 'Dropoff location not available'}</Text>
         </View>
       </View>
 
       <View style={styles.cardFooter}>
         <View style={styles.dateContainer}>
           <Ionicons name="calendar-outline" size={14} color={Colors.grayColor} />
-          <Text style={styles.dateText}>{trip.date || 'Date not available'}</Text>
+          <Text style={styles.dateText}>{formatDate(trip.requested_at)}</Text>
         </View>
-        <Text style={styles.amountText}>${trip.amount?.toFixed(2) || '0.00'}</Text>
+        <Text style={styles.amountText}>${Number(trip.final_fare ?? trip.estimated_fare ?? 0).toFixed(2)}</Text>
       </View>
     </TouchableOpacity>
   );

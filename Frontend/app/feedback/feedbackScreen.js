@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -6,19 +6,45 @@ import {
   SafeAreaView,
   TouchableOpacity,
   TextInput,
-  Image,
   Alert,
 } from "react-native";
 
 import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import api from "../../services/api";
 
 export default function FeedbackScreen() {
 
   const params = useLocalSearchParams();
+  const rideId = params.rideId;
 
   const [rating, setRating] = useState(0);
   const [feedback, setFeedback] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [driverName, setDriverName] = useState(params.driver_name || "");
+  const [categories, setCategories] = useState([]);
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState([]);
+
+  useEffect(() => {
+    api.get("/ratings/categories/")
+      .then((response) => setCategories(response.data || []))
+      .catch((error) => console.error("Error fetching rating categories:", error));
+
+    if (rideId) {
+      api.get(`/rides/trips/${rideId}/`)
+        .then((response) => setDriverName(response.data?.driver?.full_name || ""))
+        .catch((error) => console.error("Error fetching ride for feedback:", error));
+    }
+  }, [rideId]);
+
+  const toggleTag = (category) => {
+    setSelectedCategoryIds((prev) =>
+      prev.includes(category.id)
+        ? prev.filter((id) => id !== category.id)
+        : [...prev, category.id]
+    );
+    setFeedback((prev) => (prev ? `${prev}, ${category.name}` : category.name));
+  };
 
   const submitFeedback = async () => {
 
@@ -30,19 +56,35 @@ export default function FeedbackScreen() {
       return;
     }
 
-    console.log({
-      trip_id: params.trip_id,
-      driver_id: params.driver_id,
-      rating,
-      feedback,
-    });
+    if (!rideId) {
+      Alert.alert("Error", "We couldn't tell which ride this feedback is for.");
+      return;
+    }
 
-    Alert.alert(
-      "Thank You",
-      "Your feedback has been submitted."
-    );
+    setSubmitting(true);
+    try {
+      await api.post("/ratings/submit/", {
+        ride: rideId,
+        score: rating,
+        comment: feedback,
+        category_ids: selectedCategoryIds,
+      });
 
-    router.replace("/(tabs)/home");
+      Alert.alert(
+        "Thank You",
+        "Your feedback has been submitted."
+      );
+
+      router.replace("/(tabs)/home");
+    } catch (error) {
+      console.error("Error submitting feedback:", error);
+      Alert.alert(
+        "Error",
+        error.response?.data?.error || "Could not submit your feedback. Please try again."
+      );
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -50,22 +92,15 @@ export default function FeedbackScreen() {
 
       <View style={styles.content}>
 
-        {/* <Image
-          source={
-            params.driver_image
-              ? { uri: params.driver_image }
-              : require("../../assets/images/user.png")
-          }
-          style={styles.driverImage}
-        /> */}
-
         <Text style={styles.title}>
           Rate Your Ride
         </Text>
 
-        <Text style={styles.driverName}>
-          {params.driver_name}
-        </Text>
+        {driverName ? (
+          <Text style={styles.driverName}>
+            {driverName}
+          </Text>
+        ) : null}
 
         <Text style={styles.subtitle}>
           How was your trip today?
@@ -96,27 +131,18 @@ export default function FeedbackScreen() {
         {/* Quick Tags */}
         <View style={styles.tagsContainer}>
 
-          {[
-            "Friendly Driver",
-            "Clean Vehicle",
-            "Safe Driving",
-            "On Time",
-            "Comfortable Ride",
-          ].map((tag) => (
+          {categories.map((category) => (
 
             <TouchableOpacity
-              key={tag}
-              style={styles.tag}
-              onPress={() =>
-                setFeedback(
-                  feedback
-                    ? feedback + ", " + tag
-                    : tag
-                )
-              }
+              key={category.id}
+              style={[
+                styles.tag,
+                selectedCategoryIds.includes(category.id) && styles.tagSelected,
+              ]}
+              onPress={() => toggleTag(category)}
             >
               <Text style={styles.tagText}>
-                {tag}
+                {category.name}
               </Text>
             </TouchableOpacity>
 
@@ -136,11 +162,12 @@ export default function FeedbackScreen() {
       </View>
 
       <TouchableOpacity
-        style={styles.submitButton}
+        style={[styles.submitButton, submitting && { opacity: 0.6 }]}
         onPress={submitFeedback}
+        disabled={submitting}
       >
         <Text style={styles.submitText}>
-          Submit Feedback
+          {submitting ? "Submitting..." : "Submit Feedback"}
         </Text>
       </TouchableOpacity>
 
@@ -204,6 +231,10 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 20,
     margin: 5,
+  },
+
+  tagSelected: {
+    backgroundColor: "#FFE7C2",
   },
 
   tagText: {

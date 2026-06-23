@@ -8,16 +8,23 @@ import {
   TouchableOpacity,
   Modal,
 } from "react-native";
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import MyStatusBar from "../../components/myStatusBar";
 import { Colors, CommonStyles, Fonts, Sizes } from "../../constants/styles";
 import MaterialIcons from "react-native-vector-icons/MaterialIcons";
 import DashedLine from "react-native-dashed-line";
 import Header from "../../components/header";
 import { useLocalSearchParams, useNavigation } from "expo-router";
+import api from "../../services/api";
 
-
-
+const formatTime = (dateString) => {
+  if (!dateString) return "--:--";
+  return new Date(dateString).toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  });
+};
 
 
 const RideDetailScreen = () => {
@@ -27,6 +34,29 @@ const RideDetailScreen = () => {
   const { id } = useLocalSearchParams();
 
   const [showCancelDialog, setshowCancelDialog] = useState(false);
+  const [ride, setRide] = useState(null);
+  const [loading, setLoading] = useState(Boolean(id));
+
+  useEffect(() => {
+    if (!id) return;
+    api.get(`/rides/trips/${id}/`)
+      .then((response) => setRide(response.data))
+      .catch((error) => console.error("Error fetching ride detail:", error))
+      .finally(() => setLoading(false));
+  }, [id]);
+
+  const handleCancelRide = async () => {
+    setshowCancelDialog(false);
+    if (id) {
+      try {
+        await api.post(`/rides/trips/${id}/cancel/`, { reason: 'cancelled_by_rider' });
+      } catch (error) {
+        console.error("Error cancelling ride:", error);
+      }
+    }
+    navigation.goBack();
+    navigation.navigate('(tabs)', { screen: "rides/ridesScreen", params: { id: id } });
+  };
 
   return (
     <View style={{ flex: 1, backgroundColor: Colors.bodyBackColor }}>
@@ -109,11 +139,7 @@ const RideDetailScreen = () => {
                   <View style={{ backgroundColor: Colors.whiteColor, width: 2.0 }} />
                   <TouchableOpacity
                     activeOpacity={0.8}
-                    onPress={() => {
-                      setshowCancelDialog(false);
-                      navigation.goBack();
-                      navigation.navigate('(tabs)', { screen: "rides/ridesScreen", params: { id: id } })
-                    }}
+                    onPress={handleCancelRide}
                     style={styles.dialogButton}
                   >
                     <Text style={{ ...Fonts.whiteColor18SemiBold }}>Yes</Text>
@@ -217,7 +243,7 @@ const RideDetailScreen = () => {
                 marginHorizontal: Sizes.fixPadding,
               }}
             >
-              Mumbai,2464 Royal South
+              {ride?.pickup_address || "Pickup address"}
             </Text>
           </View>
 
@@ -244,7 +270,7 @@ const RideDetailScreen = () => {
                 marginHorizontal: Sizes.fixPadding,
               }}
             >
-              Pune, 2464 Royal Ln. Mesa..
+              {ride?.dropoff_address || "Dropoff address"}
             </Text>
           </View>
         </View>
@@ -273,7 +299,7 @@ const RideDetailScreen = () => {
                 marginTop: Sizes.fixPadding - 8.0,
               }}
             >
-             09:00AM
+              {formatTime(ride?.started_at || ride?.requested_at)}
             </Text>
           </View>
 
@@ -290,7 +316,7 @@ const RideDetailScreen = () => {
                 marginTop: Sizes.fixPadding - 8.0,
               }}
             >
-              15:00PM
+              {formatTime(ride?.completed_at)}
             </Text>
           </View>
 
@@ -325,7 +351,9 @@ const RideDetailScreen = () => {
           }}
         >
           <Text numberOfLines={1} style={{ ...Fonts.blackColor17SemiBold }}>
-            request & wait
+            {id
+              ? (ride?.driver?.full_name || "Driver")
+              : "request & wait"}
           </Text>
           <View
             style={{
@@ -333,15 +361,17 @@ const RideDetailScreen = () => {
               marginVertical: Sizes.fixPadding - 6.0,
             }}
           >
-           
+
             <View style={styles.ratingAndReviewDivider}></View>
-           
+
           </View>
           <Text numberOfLines={1} style={{ ...Fonts.grayColor14SemiBold }}>
-           3 min
+            {ride?.status ? ride.status.replaceAll("_", " ") : "3 min"}
           </Text>
         </View>
-        <Text style={{ ...Fonts.primaryColor18SemiBold }}>R15.00</Text>
+        <Text style={{ ...Fonts.primaryColor18SemiBold }}>
+          R{Number(ride?.final_fare ?? ride?.estimated_fare ?? 0).toFixed(2)}
+        </Text>
       </View>
     );
   }
