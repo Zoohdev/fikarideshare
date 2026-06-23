@@ -401,6 +401,18 @@ class LocationConsumer(AsyncWebsocketConsumer):
             "sender_id": event["sender_id"],
             "timestamp": event["timestamp"]
         }))
+
+    async def route_updated(self, event):
+        """
+        Pushed by RideService.push_optimized_route() whenever the
+        participant set changes (match/accept/decline/pickup/dropoff) -
+        lets the driver's app update its route without waiting for its
+        next location-driven poll.
+        """
+        await self.send(text_data=json.dumps({
+            "type": "route_updated",
+            "optimized_route": event["optimized_route"],
+        }))
     
     async def handle_location_broadcast(self, data):
         ride_id = data.get("ride_id")

@@ -252,7 +252,12 @@ class RideParticipant(models.Model):
         default=Status.INVITED
     )
     is_organizer = models.BooleanField(default=False)  # The person who created the ride
-   
+    # Seats this participant's join reserved out of ride.available_seats -
+    # needed to restore the exact amount if the driver declines them
+    # (status=PENDING in the meantime - the seat is held, but they don't
+    # count as a real passenger anywhere else until ACCEPTED).
+    seats_reserved = models.PositiveIntegerField(default=1)
+
     # Participant's specific locations (can differ from main ride)
     pickup_location = models.PointField(geography=True, srid=4326)
     pickup_address = models.TextField()

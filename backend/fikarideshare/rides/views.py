@@ -113,6 +113,15 @@ class RideViewSet(viewsets.ModelViewSet):
                 )
 
                 with transaction.atomic():
+                    # check_no_active_ride locks the requester's own row -
+                    # the pool-match path previously never checked this at
+                    # all, so a rider already active elsewhere (as rider,
+                    # driver, or another pool's participant) could still
+                    # get matched in here.
+                    active_ride_error = service.check_no_active_ride(request.user)
+                    if active_ride_error:
+                        return Response(active_ride_error, status=status.HTTP_400_BAD_REQUEST)
+
                     # Re-fetch and lock the row - open_pool was read outside
                     # any lock, so without this, two riders matching the
                     # same last seat at once could both succeed.
@@ -130,12 +139,19 @@ class RideViewSet(viewsets.ModelViewSet):
                         )
 
                     if not lost_race:
+                        # PENDING, not ACCEPTED - the seat is reserved
+                        # immediately (so no one else can grab it while the
+                        # driver decides), but this rider doesn't count as
+                        # a real passenger anywhere else (route, fare
+                        # split, "is the car empty" checks) until the
+                        # driver actually approves them below.
                         participant = RideParticipant.objects.create(
                             ride=pool,
                             user=request.user,
                             pickup_location=pickup,
                             dropoff_location=dropoff,
-                            status=RideParticipant.Status.ACCEPTED,
+                            status=RideParticipant.Status.PENDING,
+                            seats_reserved=required_seats,
                         )
 
                         pool.available_seats -= required_seats
@@ -255,91 +271,14 @@ class RideViewSet(viewsets.ModelViewSet):
     
     @action(detail=True, methods=['get'])
     def smart_waypoints(self, request, pk=None):
-        from django.contrib.gis.geos import Point
-        
         ride = self.get_object()
-        
-        # 1. Get Driver's current location (Fallback to first pickup if driver location isn't tracked yet)
-        # Assuming you pass driver_lat / driver_lng in query params, or use the main ride pickup
-        current_lat = float(request.query_params.get('lat', ride.pickup_location.y))
-        current_lng = float(request.query_params.get('lng', ride.pickup_location.x))
-        current_loc = Point(current_lng, current_lat, srid=4326)
 
-        pending_stops = []
-        
-        # 2. Gather all pending stops (Primary Rider)
-        if ride.status == ride.Status.DRIVER_ASSIGNED:
-            pending_stops.append({'type': 'pickup', 'user_id': ride.rider.id, 'point': ride.pickup_location, 'name': 'Primary Rider'})
-        if ride.status in [ride.Status.DRIVER_ASSIGNED, ride.Status.IN_PROGRESS]:
-            pending_stops.append({'type': 'dropoff', 'user_id': ride.rider.id, 'point': ride.dropoff_location, 'name': 'Primary Rider', 'requires_pickup': ride.rider.id})
+        lat_param = request.query_params.get('lat')
+        lng_param = request.query_params.get('lng')
+        current_lat = float(lat_param) if lat_param else None
+        current_lng = float(lng_param) if lng_param else None
 
-        # 3. Gather all pending stops (Pool Participants - excludes the
-        # organizer's own mirrored row, since their stop is already added
-        # above from ride.rider/ride.status directly)
-        for p in ride.participants.filter(
-            is_organizer=False,
-            status__in=[
-                RideParticipant.Status.ACCEPTED,
-                RideParticipant.Status.PICKED_UP,
-            ]
-        ):
-
-            if p.status == RideParticipant.Status.ACCEPTED:
-
-                pending_stops.append({
-                    'type': 'pickup',
-                    'user_id': p.user.id,
-                    'point': p.pickup_location,
-                    'name': f'Rider {p.user.id}'
-                })
-
-            pending_stops.append({
-                'type': 'dropoff',
-                'user_id': p.user.id,
-                'point': p.dropoff_location,
-                'name': f'Rider {p.user.id}',
-                'requires_pickup': p.user.id
-            })
-
-        # 4. Nearest Neighbor Algorithm (Calculate best sequence)
-        route_sequence = []
-        picked_up_users = set()
-        
-        # Add users who are already in the car to the picked_up set
-        if ride.status == ride.Status.IN_PROGRESS:
-            picked_up_users.add(ride.rider.id)
-        for p in ride.participants.filter(is_organizer=False, status='picked_up'):
-            picked_up_users.add(p.user.id)
-
-        while pending_stops:
-            # Filter valid next stops (Cannot drop off someone who hasn't been picked up)
-            valid_next_stops = [
-                stop for stop in pending_stops 
-                if stop['type'] == 'pickup' or (stop['type'] == 'dropoff' and stop['requires_pickup'] in picked_up_users)
-            ]
-            
-            if not valid_next_stops:
-                break # Safety break
-                
-            # Find closest valid stop to current location
-            valid_next_stops.sort(key=lambda stop: current_loc.distance(stop['point']))
-            closest_stop = valid_next_stops[0]
-            
-            # Format for the frontend App
-            route_sequence.append({
-                "action": closest_stop['type'],
-                "user_id": closest_stop['user_id'],
-                "latitude": closest_stop['point'].y,
-                "longitude": closest_stop['point'].x
-            })
-            
-            # Update state for next loop iteration
-            if closest_stop['type'] == 'pickup':
-                picked_up_users.add(closest_stop['user_id'])
-                
-            current_loc = closest_stop['point']
-            pending_stops.remove(closest_stop)
-
+        route_sequence = RideService().compute_optimized_route(ride, current_lat, current_lng)
         return Response({"optimized_route": route_sequence}, status=status.HTTP_200_OK)
 
     
@@ -386,6 +325,7 @@ class RideViewSet(viewsets.ModelViewSet):
                 )
                 return Response({'status': 'ride_fully_completed', 'user_id': user_id_to_drop})
 
+            service.push_optimized_route(ride)
             return Response({'status': 'dropped_off', 'user_id': user_id_to_drop, 'fare': final_fare})
 
         # Case B: Dropping off the Primary Rider
@@ -419,7 +359,8 @@ class RideViewSet(viewsets.ModelViewSet):
                     data={}
                 )
                 return Response({'status': 'ride_fully_completed', 'fare': ride_fare})
-                
+
+            service.push_optimized_route(ride)
             return Response({'status': 'primary_rider_dropped_off', 'fare': ride_fare})
 
         return Response({'error': 'User not found or not currently picked up'}, status=status.HTTP_400_BAD_REQUEST)
@@ -694,7 +635,17 @@ class CompleteRideView(APIView):
                 if ride.ride_type == 'shared':
                     from rides.services.pricing import FareSplitService
 
-                    participants = list(ride.participants.all())
+                    # Only people who actually rode get a fare share - not
+                    # PENDING requests the driver never acted on (now
+                    # DECLINED by _decline_stale_pending_participants
+                    # above) or anyone who separately declined/cancelled.
+                    participants = list(ride.participants.filter(
+                        status__in=[
+                            RideParticipant.Status.ACCEPTED,
+                            RideParticipant.Status.PICKED_UP,
+                            RideParticipant.Status.DROPPED_OFF,
+                        ]
+                    ))
 
                     # The organizer (ride.rider) is mirrored as one of these
                     # participants (is_organizer=True, see
@@ -733,12 +684,39 @@ class CompleteRideView(APIView):
                     )
                     shares_by_user = {row['user_id']: row for row in split_result}
 
+                    from payments.services import PaymentService
+                    payment_service = PaymentService()
+
                     for p in participants:
                         share = shares_by_user.get(str(p.user_id))
                         if share:
                             p.fare_amount = share['amount']
                             p.fare_percentage = share['percentage']
                         p.status = RideParticipant.Status.DROPPED_OFF
+
+                        # Charge each rider (organizer included) their own
+                        # share immediately - previously the split was
+                        # calculated and stored here but nothing actually
+                        # collected it; only a single manual "Proceed to
+                        # Payment" button existed, which only the organizer
+                        # could even reach and which charged the whole
+                        # trip's total rather than anyone's individual share.
+                        if p.fare_amount and p.fare_amount > 0:
+                            charged, charge_result = payment_service.charge_saved_card(
+                                user=p.user,
+                                amount=p.fare_amount,
+                                currency='USD',
+                                description=f"Fare share for ride {ride.id}",
+                                metadata={'ride_id': str(ride.id), 'participant_id': str(p.id)},
+                            )
+                            if charged and not charge_result.get('requires_action'):
+                                p.payment_status = 'paid'
+                                payment_id = charge_result.get('payment_id')
+                                if payment_id:
+                                    p.payment_id = payment_id
+                            else:
+                                p.payment_status = 'failed'
+
                         p.save()
 
                 return Response({'status': 'completed', 'ride_id': str(ride.id)}, status=status.HTTP_200_OK)
@@ -895,28 +873,38 @@ class AcceptPoolRequestAPIView(APIView):
             "participant_id"
         )
 
-        participant = get_object_or_404(
-            RideParticipant,
-            id=participant_id
-        )
+        with transaction.atomic():
+            participant = get_object_or_404(
+                RideParticipant.objects.select_for_update(),
+                id=participant_id
+            )
 
-        ride = participant.ride
+            ride = participant.ride
 
-        participant.status = (
-            RideParticipant.Status.ACCEPTED
-        )
+            if str(ride.driver_id) != str(request.user.id):
+                return Response(
+                    {"error": "Only this ride's driver can approve pool requests."},
+                    status=status.HTTP_403_FORBIDDEN
+                )
 
-        
+            if participant.status != RideParticipant.Status.PENDING:
+                return Response(
+                    {"error": f"Request is no longer pending (status: {participant.status})."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
 
-        participant.save()
+            participant.status = RideParticipant.Status.ACCEPTED
+            participant.save(update_fields=['status'])
 
-        RideService()._broadcast_ride_update(
-            participant.ride,
+        service = RideService()
+        service._broadcast_ride_update(
+            ride,
             {
                 "event": "passenger_joined_pool",
                 "participant_id": str(participant.id),
             }
         )
+        service.push_optimized_route(ride)
 
         return Response({
             "success": True
@@ -927,30 +915,49 @@ class DeclinePoolRequestAPIView(APIView):
 
     def post(self, request):
 
-        participant_id =request.data.get(
-                "participant_id"
-            )
+        participant_id = request.data.get(
+            "participant_id"
+        )
 
-        participant = get_object_or_404(
-                RideParticipant,
+        with transaction.atomic():
+            participant = get_object_or_404(
+                RideParticipant.objects.select_for_update(),
                 id=participant_id
             )
 
-        participant.status = (
-            RideParticipant.Status.DECLINED
-        )
-        RideService()._broadcast_ride_update(
-            participant.ride,
-            {
-                "event":
-                "passenger_declined",
+            ride = Ride.objects.select_for_update().get(id=participant.ride_id)
 
-                "participant_id":
-                str(participant.id)
+            if str(ride.driver_id) != str(request.user.id):
+                return Response(
+                    {"error": "Only this ride's driver can decline pool requests."},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
+            if participant.status != RideParticipant.Status.PENDING:
+                return Response(
+                    {"error": f"Request is no longer pending (status: {participant.status})."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            participant.status = RideParticipant.Status.DECLINED
+            participant.save(update_fields=['status'])
+
+            # The seat was reserved the moment this rider matched, before
+            # the driver ever saw the request - give it back now that
+            # they've been turned down, instead of permanently shrinking
+            # this vehicle's capacity.
+            ride.available_seats += participant.seats_reserved
+            ride.pool_open = True
+            ride.save(update_fields=['available_seats', 'pool_open'])
+
+        service = RideService()
+        service._broadcast_ride_update(
+            ride,
+            {
+                "event": "passenger_declined",
+                "participant_id": str(participant.id)
             }
         )
-
-        participant.save()
 
         return Response({
             "success": True

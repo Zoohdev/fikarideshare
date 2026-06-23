@@ -85,6 +85,22 @@ class ProcessPaymentView(APIView):
         currency = request.data.get('currency', 'USD')
         ride_id = request.data.get('ride_id')
 
+        if ride_id:
+            # Shared-ride participants (including the organizer) are now
+            # auto-charged their own fare share the moment the ride
+            # completes (RideViewSet.CompleteRideView) - if the caller's
+            # app still shows a "Proceed to Payment" button from before
+            # that finished, don't charge them a second time.
+            from rides.models import RideParticipant
+            already_paid = RideParticipant.objects.filter(
+                ride_id=ride_id, user=request.user, payment_status='paid'
+            ).exists()
+            if already_paid:
+                return Response(
+                    {"message": "Already paid for this ride."},
+                    status=status.HTTP_200_OK
+                )
+
         if not amount_raw:
             return Response({"error": "amount is required."}, status=status.HTTP_400_BAD_REQUEST)
         try:

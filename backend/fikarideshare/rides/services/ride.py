@@ -2,6 +2,7 @@ from typing import Dict, List, Tuple, Optional
 from decimal import Decimal
 import math
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 from django.contrib.gis.geos import Point
 from channels.layers import get_channel_layer
@@ -41,12 +42,56 @@ class RideService:
     - Shared ride management
     """
    
+    ACTIVE_RIDE_STATUSES = [
+        Ride.Status.REQUESTED,
+        Ride.Status.SEARCHING,
+        Ride.Status.DRIVER_ASSIGNED,
+        Ride.Status.DRIVER_ARRIVING,
+        Ride.Status.ARRIVED,
+        Ride.Status.IN_PROGRESS,
+    ]
+
     def __init__(self):
         self.maps = GoogleMapsService()
         self.location_service = DriverLocationService()
         self.pricing = PricingService()
         self.channel_layer = get_channel_layer()
-   
+
+    def check_no_active_ride(self, user) -> Optional[Dict]:
+        """
+        Returns an error dict if `user` already has an active ride - as
+        rider, driver, or an accepted/pending pool participant elsewhere -
+        or None if they're clear to request/join one.
+
+        Locks the user's own row first (must be called inside an atomic
+        block) so two near-simultaneous requests from the same user can't
+        both pass this check before either has committed - previously this
+        check raced freely, and the pool-join path never called it at all.
+        """
+        User.objects.select_for_update().get(id=user.id)
+
+        has_active_ride = Ride.objects.filter(
+            Q(rider=user) | Q(driver=user),
+            status__in=self.ACTIVE_RIDE_STATUSES,
+        ).exists()
+        if has_active_ride:
+            return {'error': 'You already have an active ride'}
+
+        has_active_participation = RideParticipant.objects.filter(
+            user=user,
+            is_organizer=False,
+            status__in=[
+                RideParticipant.Status.PENDING,
+                RideParticipant.Status.ACCEPTED,
+                RideParticipant.Status.PICKED_UP,
+            ],
+            ride__status__in=self.ACTIVE_RIDE_STATUSES,
+        ).exists()
+        if has_active_participation:
+            return {'error': 'You already have an active ride'}
+
+        return None
+
     # Pools whose own pickup->dropoff bearing diverges from the candidate
     # rider's by more than this are rejected, even if pickup/dropoff points
     # both fall within MAX_POOL_PICKUP_DISTANCE_KM/MAX_POOL_DROPOFF_DISTANCE_KM -
@@ -55,6 +100,14 @@ class RideService:
     MAX_POOL_BEARING_DIFF_DEGREES = 45
     MAX_POOL_PICKUP_DISTANCE_KM = 3.5
     MAX_POOL_DROPOFF_DISTANCE_KM = 6.0
+    # A pool already IN_PROGRESS for longer than this is excluded from
+    # matching - there's no realistic time left to detour for a new
+    # pickup on a trip that's nearly done.
+    MAX_POOL_IN_PROGRESS_MINUTES = 10
+    # Below this remaining distance, a bearing is noise, not signal (e.g.
+    # pickup and dropoff a block apart) - skip the directional check
+    # rather than reject a plausible match on a meaningless angle.
+    MIN_BEARING_DISTANCE_METERS = 200
 
     def find_compatible_shared_pool(self, pickup_lat: float, pickup_lng: float, dropoff_lat: float, dropoff_lng: float, required_seats: int):
         """
@@ -64,18 +117,26 @@ class RideService:
         from django.contrib.gis.geos import Point
         from django.contrib.gis.measure import D
         from django.contrib.gis.db.models.functions import Distance
+        from geopy.distance import geodesic
+        from datetime import timedelta
 
         passenger_pickup = Point(pickup_lng, pickup_lat, srid=4326)
         passenger_dropoff = Point(dropoff_lng, dropoff_lat, srid=4326)
         passenger_bearing = _bearing_degrees(pickup_lat, pickup_lng, dropoff_lat, dropoff_lng)
+        passenger_trip_distance_m = geodesic((pickup_lat, pickup_lng), (dropoff_lat, dropoff_lng)).meters
 
-        # 1. Query for rides that are shared, have seats, and are open for matching,
-        # within range, ordered nearest-pickup-first.
+        in_progress_cutoff = timezone.now() - timedelta(minutes=self.MAX_POOL_IN_PROGRESS_MINUTES)
+
+        # 1. Query for rides that are shared, have seats, and are open for
+        # matching, within range, ordered nearest-pickup-first. IN_PROGRESS
+        # pools are only eligible if they started recently.
         candidate_pools = Ride.objects.filter(
             ride_type='shared',
             pool_open=True,
             available_seats__gte=required_seats,
-            status__in=[Ride.Status.SEARCHING, Ride.Status.DRIVER_ASSIGNED, Ride.Status.IN_PROGRESS]
+        ).filter(
+            Q(status__in=[Ride.Status.SEARCHING, Ride.Status.DRIVER_ASSIGNED]) |
+            Q(status=Ride.Status.IN_PROGRESS, started_at__gte=in_progress_cutoff)
         ).filter(
             pickup_location__distance_lte=(passenger_pickup, D(km=self.MAX_POOL_PICKUP_DISTANCE_KM)),
             dropoff_location__distance_lte=(passenger_dropoff, D(km=self.MAX_POOL_DROPOFF_DISTANCE_KM))
@@ -86,24 +147,136 @@ class RideService:
         # 2. Directional alignment - reject pools heading a meaningfully
         # different way even if both points fall within radius (a rider
         # going the opposite direction can still land in-radius on a short
-        # trip). Pick the candidate whose own pickup->dropoff bearing is
-        # closest to the new rider's.
+        # trip). Pick the candidate whose own bearing is closest to the new
+        # rider's. For a pool already underway, bearing is measured from
+        # the driver's last known location (not the original pickup point)
+        # to the pool's dropoff, since that's the direction actually being
+        # driven right now.
         best_pool = None
         best_diff = None
         for pool in candidate_pools:
             if not pool.pickup_location or not pool.dropoff_location:
                 continue
-            pool_bearing = _bearing_degrees(
-                pool.pickup_location.y, pool.pickup_location.x,
-                pool.dropoff_location.y, pool.dropoff_location.x,
-            )
-            diff = _bearing_difference(passenger_bearing, pool_bearing)
+
+            origin_lat, origin_lng = pool.pickup_location.y, pool.pickup_location.x
+            if pool.status == Ride.Status.IN_PROGRESS:
+                latest_location = pool.location_updates.order_by('-recorded_at').first()
+                if latest_location:
+                    origin_lat, origin_lng = latest_location.location.y, latest_location.location.x
+
+            pool_remaining_distance_m = geodesic(
+                (origin_lat, origin_lng), (pool.dropoff_location.y, pool.dropoff_location.x)
+            ).meters
+
+            if (pool_remaining_distance_m < self.MIN_BEARING_DISTANCE_METERS
+                    or passenger_trip_distance_m < self.MIN_BEARING_DISTANCE_METERS):
+                diff = 0
+            else:
+                pool_bearing = _bearing_degrees(
+                    origin_lat, origin_lng,
+                    pool.dropoff_location.y, pool.dropoff_location.x,
+                )
+                diff = _bearing_difference(passenger_bearing, pool_bearing)
+
             if diff > self.MAX_POOL_BEARING_DIFF_DEGREES:
                 continue
             if best_diff is None or diff < best_diff:
                 best_pool, best_diff = pool, diff
 
         return best_pool
+
+    def compute_optimized_route(self, ride: Ride, current_lat: float = None, current_lng: float = None) -> List[Dict]:
+        """
+        Nearest-neighbor sequencing of pending pickup/dropoff stops across
+        the primary rider and accepted pool participants, honoring "can't
+        drop someone off before they've been picked up".
+
+        Distance is real geodesic distance via geopy - the previous
+        version sorted by raw GEOS Point.distance(), which on SRID 4326
+        points returns decimal *degrees*, not meters, and distorts further
+        from the equator. PENDING participants are excluded (filtered out
+        by the status__in below) - an unapproved match shouldn't show up
+        in the driver's route before they've accepted it.
+
+        Extracted from the smart_waypoints view action so it can also be
+        called - and pushed over the ride's websocket group - whenever the
+        participant set changes (match/accept/decline/pickup/dropoff),
+        instead of only being available via an on-demand GET the driver's
+        app happens to poll.
+        """
+        from geopy.distance import geodesic
+
+        if current_lat is None or current_lng is None:
+            current_lat = ride.pickup_location.y
+            current_lng = ride.pickup_location.x
+        current_loc = (current_lat, current_lng)
+
+        pending_stops = []
+
+        if ride.status == Ride.Status.DRIVER_ASSIGNED:
+            pending_stops.append({'type': 'pickup', 'user_id': ride.rider.id, 'point': ride.pickup_location, 'name': 'Primary Rider'})
+        if ride.status in [Ride.Status.DRIVER_ASSIGNED, Ride.Status.IN_PROGRESS]:
+            pending_stops.append({'type': 'dropoff', 'user_id': ride.rider.id, 'point': ride.dropoff_location, 'name': 'Primary Rider', 'requires_pickup': ride.rider.id})
+
+        for p in ride.participants.filter(
+            is_organizer=False,
+            status__in=[RideParticipant.Status.ACCEPTED, RideParticipant.Status.PICKED_UP],
+        ):
+            if p.status == RideParticipant.Status.ACCEPTED:
+                pending_stops.append({'type': 'pickup', 'user_id': p.user.id, 'point': p.pickup_location, 'name': f'Rider {p.user.id}'})
+            pending_stops.append({'type': 'dropoff', 'user_id': p.user.id, 'point': p.dropoff_location, 'name': f'Rider {p.user.id}', 'requires_pickup': p.user.id})
+
+        route_sequence = []
+        picked_up_users = set()
+
+        if ride.status == Ride.Status.IN_PROGRESS:
+            picked_up_users.add(ride.rider.id)
+        for p in ride.participants.filter(is_organizer=False, status=RideParticipant.Status.PICKED_UP):
+            picked_up_users.add(p.user.id)
+
+        while pending_stops:
+            valid_next_stops = [
+                stop for stop in pending_stops
+                if stop['type'] == 'pickup' or (stop['type'] == 'dropoff' and stop['requires_pickup'] in picked_up_users)
+            ]
+            if not valid_next_stops:
+                break  # Safety break
+
+            valid_next_stops.sort(
+                key=lambda stop: geodesic(current_loc, (stop['point'].y, stop['point'].x)).meters
+            )
+            closest_stop = valid_next_stops[0]
+
+            route_sequence.append({
+                "action": closest_stop['type'],
+                "user_id": str(closest_stop['user_id']),
+                "latitude": closest_stop['point'].y,
+                "longitude": closest_stop['point'].x,
+            })
+
+            if closest_stop['type'] == 'pickup':
+                picked_up_users.add(closest_stop['user_id'])
+
+            current_loc = (closest_stop['point'].y, closest_stop['point'].x)
+            pending_stops.remove(closest_stop)
+
+        return route_sequence
+
+    def push_optimized_route(self, ride: Ride, current_lat: float = None, current_lng: float = None):
+        """
+        Compute the route and push it to the ride's websocket group, so the
+        driver's app gets a fresh sequence the moment the participant set
+        changes instead of only on its next location-driven poll.
+        """
+        route = self.compute_optimized_route(ride, current_lat, current_lng)
+        async_to_sync(self.channel_layer.group_send)(
+            f"ride_{ride.id}",
+            {
+                "type": "route_updated",
+                "optimized_route": route,
+            }
+        )
+        return route
 
     def estimate_fare(
         self,
@@ -199,22 +372,13 @@ class RideService:
         Returns:
             Tuple of (success, ride_data or error)
         """
-        # Check if rider has an active ride
-        active_ride = Ride.objects.filter(
-            rider=rider,
-            status__in=[
-                Ride.Status.REQUESTED,
-                Ride.Status.SEARCHING,
-                Ride.Status.DRIVER_ASSIGNED,
-                Ride.Status.DRIVER_ARRIVING,
-                Ride.Status.ARRIVED,
-                Ride.Status.IN_PROGRESS,
-            ]
-        ).first()
-       
-        if active_ride:
-            return False, {'error': 'You already have an active ride'}
-       
+        # Check if rider has an active ride (as rider, driver, or pool
+        # participant elsewhere)
+        active_ride_error = self.check_no_active_ride(rider)
+        if active_ride_error:
+            return False, active_ride_error
+
+
         # Get fare estimate
         estimate = self.estimate_fare(
             pickup_lat, pickup_lng,
@@ -227,12 +391,19 @@ class RideService:
     #    me
         otp_code = f"{random.randint(1000, 9999)}"
         # Create ride
+        # ride_type ('standard'/'shared') and scheduling are independent -
+        # whether a ride is poolable shouldn't change based on whether it's
+        # for right now or booked ahead. This used to overwrite ride_type
+        # to 'scheduled' whenever scheduled_time was set, silently dropping
+        # the rider's actual standard/shared choice - which also meant a
+        # scheduled shared ride could never be matched into a pool, since
+        # find_compatible_shared_pool filters on ride_type='shared'.
+        # "Scheduled-ness" is tracked by scheduled_pickup_time instead (see
+        # process_scheduled_rides, which now filters on that rather than
+        # ride_type).
         ride = Ride.objects.create(
             rider=rider,
-            ride_type=(
-                Ride.RideType.SCHEDULED if scheduled_time
-                else ride_type
-            ),
+            ride_type=ride_type,
             status=Ride.Status.REQUESTED,
             pickup_location=Point(pickup_lng, pickup_lat, srid=4326),
             pickup_address=estimate['pickup_address'],
@@ -389,6 +560,28 @@ class RideService:
         ride.vehicle = vehicle
         ride.status = Ride.Status.DRIVER_ASSIGNED
         ride.driver_assigned_at = timezone.now()
+
+        if ride.ride_type == 'shared' and vehicle.seats:
+            # available_seats previously just sat at its model default (3)
+            # regardless of which vehicle actually got assigned - an
+            # Economy car and an XL both showed the same pool capacity.
+            # Reconcile against the real vehicle now that we know which
+            # one it is, minus the driver's own seat and whoever's already
+            # in the car (organizer's party + already-matched others).
+            seats_already_taken = ride.passenger_count or 1
+            seats_already_taken += sum(
+                p.seats_reserved for p in ride.participants.filter(
+                    is_organizer=False,
+                    status__in=[
+                        RideParticipant.Status.PENDING,
+                        RideParticipant.Status.ACCEPTED,
+                        RideParticipant.Status.PICKED_UP,
+                    ],
+                )
+            )
+            ride.available_seats = max(0, vehicle.seats - 1 - seats_already_taken)
+            ride.pool_open = ride.available_seats > 0
+
         ride.save()
        
         # Notify rider via WebSocket
@@ -458,9 +651,17 @@ class RideService:
             if str(provided_otp) == str(ride.verification_code):
                 ride.started_at = timezone.now()
             else:
-                # If it's a shared ride, check if it belongs to a participant
+                # If it's a shared ride, check if it belongs to a participant.
+                # Restricted to ACCEPTED - a PENDING participant already has
+                # an auto-generated pickup_code (RideParticipant.save() sets
+                # one for everyone), so without this filter their own code
+                # would mark them picked up before the driver ever approved
+                # them, bypassing Accept/Decline entirely.
                 if ride.ride_type == 'shared':
-                    participant = ride.participants.filter(pickup_code=provided_otp).first()
+                    participant = ride.participants.filter(
+                        pickup_code=provided_otp,
+                        status=RideParticipant.Status.ACCEPTED,
+                    ).first()
                     if participant:
                         participant.status = RideParticipant.Status.PICKED_UP
                         participant.picked_up_at = timezone.now()
@@ -479,6 +680,7 @@ class RideService:
         elif new_status == Ride.Status.COMPLETED:
             ride.completed_at = timezone.now()
             self._calculate_final_fare(ride)
+            self._decline_stale_pending_participants(ride)
         elif new_status == Ride.Status.CANCELLED:
             ride.cancelled_at = timezone.now()
             ride.cancellation_reason = data.get(
@@ -487,10 +689,16 @@ class RideService:
                 else Ride.CancellationReason.DRIVER_CANCELLED
             )
             ride.cancellation_note = data.get('note', '')
+            self._decline_stale_pending_participants(ride)
 
         # 3. SET STATUS AND SAVE ONCE
         ride.status = new_status
         ride.save()
+
+        if new_status == Ride.Status.IN_PROGRESS:
+            # A participant may have just been marked PICKED_UP above -
+            # their dropoff stop is now valid to schedule.
+            self.push_optimized_route(ride)
 
         # 4. BROADCAST TO CHANNELS
         broadcast_payload = {
@@ -508,6 +716,27 @@ class RideService:
             'status': ride.status,
         }
    
+    def _decline_stale_pending_participants(self, ride: Ride):
+        """
+        When a ride ends (completed or cancelled) with pool-join requests
+        still sitting at PENDING - the driver never acted on them - decline
+        them and restore their reserved seats, instead of leaving them
+        stuck at PENDING forever (which would also make the fare split
+        treat them as a real passenger if it ever queried by anything
+        broader than ACCEPTED/PICKED_UP/DROPPED_OFF).
+        """
+        pending = list(ride.participants.filter(status=RideParticipant.Status.PENDING))
+        if not pending:
+            return
+
+        restored_seats = sum(p.seats_reserved for p in pending)
+        for p in pending:
+            p.status = RideParticipant.Status.DECLINED
+            p.save(update_fields=['status'])
+
+        ride.available_seats += restored_seats
+        ride.save(update_fields=['available_seats'])
+
     def _calculate_final_fare(self, ride: Ride):
         """
         Calculate final fare based on actual ride data.

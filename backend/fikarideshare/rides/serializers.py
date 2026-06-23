@@ -9,9 +9,22 @@ from .models import Ride, RideParticipant, RideLocation,EmergencySOS,RideShareLi
 
 class LocationSerializer(serializers.Serializer):
     """Serializer for location coordinates."""
-   
+
     latitude = serializers.FloatField(min_value=-90, max_value=90)
     longitude = serializers.FloatField(min_value=-180, max_value=180)
+
+    def validate(self, attrs):
+        # (0, 0) - "null island" - is a classic default a GPS/location
+        # library falls back to on failure. It's within the valid lat/lng
+        # range so the field-level validators above let it through, but
+        # it's never a real pickup/dropoff point (it's open ocean) and
+        # would otherwise feed straight into fare estimation and pool
+        # matching as if it were real.
+        if abs(attrs['latitude']) < 0.001 and abs(attrs['longitude']) < 0.001:
+            raise serializers.ValidationError(
+                "Invalid location (0, 0) - location services may have failed."
+            )
+        return attrs
 
 
 class RideEstimateSerializer(serializers.Serializer):

@@ -168,9 +168,13 @@ def process_scheduled_rides():
     now = timezone.now()
     upcoming = now + timedelta(minutes=15)
    
+    # Scheduling is independent of ride_type (standard/shared) - identify
+    # scheduled rides by scheduled_pickup_time being set, not by ride_type
+    # (which no longer gets overwritten to 'scheduled' - see
+    # RideService.create_ride).
     rides = Ride.objects.filter(
-        ride_type=Ride.RideType.SCHEDULED,
         status=Ride.Status.REQUESTED,
+        scheduled_pickup_time__isnull=False,
         scheduled_pickup_time__gte=now,
         scheduled_pickup_time__lte=upcoming,
     )
