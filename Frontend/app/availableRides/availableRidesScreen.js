@@ -178,7 +178,7 @@ const AvailableRidesScreen = () => {
         const mappedRides = vehicleTypes.map(v => {
           const estimate = parsedEstimates[v.backendType];
           if (estimate) {
-            const multiplier = rideType === "sharing" ? numberOfChairs : 1;
+            const multiplier = rideType === "shared" ? numberOfChairs : 1;
             const finalCalculatedFare = (estimate.estimated_fare * multiplier).toFixed(2);
             return {
               ...v,
@@ -213,27 +213,26 @@ const AvailableRidesScreen = () => {
       setBookingStatus("waiting");
   
       const selectedRideData = availableRides.find(r => r.id === selectedRide);
-      const backendRideType = rideType === "solo" ? "standard" : "shared";
-      
+
       // Construct payload precisely mapping to RideCreateSerializer
       const tripData = {
         pickup: { latitude: currentLocation.latitude, longitude: currentLocation.longitude },
         dropoff: { latitude: destinationCoord.latitude, longitude: destinationCoord.longitude },
         vehicle_type: selectedRideData.backendType,
-        passenger_count: rideType === "solo" ? 1 : numberOfChairs,
+        passenger_count: rideType === "shared" ? numberOfChairs : 1,
         ride_type: rideType,
-        
+
         scheduled_time: null // Explicitly force immediate dispatch
       };
-  
-      const response = await api.post('/rides/trips/', tripData); 
+
+      const response = await api.post('/rides/trips/', tripData);
       console.log("trips:" ,response.data)
-      
-     // SHARED RIDE JOIN REQUEST
-if (
-  response.status === 200 &&
-  response.data?.participant_id
-) {
+
+     // SHARED RIDE JOIN REQUEST - matched into an existing pool instead of
+     // a brand new ride. The backend says so explicitly via
+     // joined_existing_pool, rather than us inferring it from which fields
+     // happen to be present.
+if (response.data?.joined_existing_pool) {
 
   console.log(
     "POOL REQUEST CREATED"
@@ -250,7 +249,7 @@ if (
   );
 
   setCurrentTripId(
-    response.data.ride_id
+    response.data.id
   );
 
   return;

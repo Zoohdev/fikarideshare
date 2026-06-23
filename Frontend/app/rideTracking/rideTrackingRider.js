@@ -597,12 +597,12 @@ const getImageUrl = (path) => {
 
         if (
           response.data
-            ?.coordinates
+            ?.optimized_route
         ) {
 
           setRouteCoordinates(
             response.data
-              .coordinates
+              .optimized_route
           );
         }
 
