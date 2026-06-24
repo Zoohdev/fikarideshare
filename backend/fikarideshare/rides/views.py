@@ -428,128 +428,70 @@ class RideVerificationView(APIView):
         except Ride.DoesNotExist:
             return Response({'error': 'Ride not found'}, status=status.HTTP_404_NOT_FOUND)
 
-    # POST: The driver calls this to verify the code
+    # POST: The driver calls this to verify a single rider's code. This is
+    # called once per passenger in a shared ride - each call only marks
+    # the specific RideParticipant whose pickup_code matches, never the
+    # whole pool. All matching/mutation lives in
+    # RideService.update_ride_status() so there is exactly one place that
+    # decides "who does this code belong to" - this view used to duplicate
+    # that logic and pre-mutate the participant before calling the service,
+    # which made the service's own (now-stale) status filter falsely reject
+    # the first non-primary-rider pickup of a shared ride with a 400.
     def post(self, request):
-        
-        print("Request Data:", request.data)
-
         serializer = RideVerificationSerializer(data=request.data)
 
         if not serializer.is_valid():
-            print("Serializer Errors:", serializer.errors)
             return Response(
                 serializer.errors,
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        print("Validated Data:", serializer.validated_data)
-        ride_id = request.data.get('ride_id')
+        ride_id = serializer.validated_data['ride_id']
+        code = str(serializer.validated_data['code']).strip()
+
         try:
-            ride = Ride.objects.get(id=ride_id)
-            code = request.data.get('code')
-            if not code:
-                return Response({'error': 'Verification code is required'}, status=status.HTTP_400_BAD_REQUEST)
-            # Case A: Code matches the main primary ride owner
-            if str(ride.verification_code).strip() == code:
+            with transaction.atomic():
+                ride = Ride.objects.select_for_update().get(id=ride_id)
 
                 service = RideService()
-
                 success, result = service.update_ride_status(
                     ride=ride,
                     new_status=Ride.Status.IN_PROGRESS,
                     actor=request.user,
-                    data={
-                        "verification_code": code
-                    }
+                    data={"verification_code": code}
                 )
-
-                if not success:
-                    print("UPDATE STATUS FAILED")
-                    print("RESULT:", result)
-                    print("CURRENT STATUS:", ride.status)
-
-                    return Response(
-                        result,
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
-
-                from channels.layers import get_channel_layer
-                from asgiref.sync import async_to_sync
-
-                channel_layer = get_channel_layer()
-                async_to_sync(channel_layer.group_send)(
-                    f"user_{ride.rider.id}",
-                    {
-                        "type": "ride_status",
-                        "ride_id": str(ride.id),
-                        "status": "in_progress",
-                        "data": {
-                            "ride_id": str(ride.id),
-                            "status": "in_progress",
-                            "verified_user_id": str(ride.rider.id)
-                        }
-                    }
-                )
-                
-                return Response({
-                    "status": "verified",
-                    "type": "primary_rider"
-                })
-                
-            # Case B: Code matches a pooled participant hopping in mid-trip
-            if ride.ride_type == 'shared':
-                participant = ride.participants.filter(pickup_code=code, status='accepted').first()
-                if participant:
-                    participant.status = RideParticipant.Status.PICKED_UP
-                    participant.picked_up_at = timezone.now()
-                    participant.save()
-                    
-                    # FIX 2: Ensure the main ride switches to IN_PROGRESS if this is the first passenger
-                    service = RideService()
-                    print("OTP VERIFIED")
-                    print("RIDE ID:", ride.id)
-                    print("CURRENT STATUS:", ride.status)
-                    if ride.status != Ride.Status.IN_PROGRESS:
-
-                        success, result = service.update_ride_status(
-                            ride=ride,
-                            new_status=Ride.Status.IN_PROGRESS,
-                            actor=request.user,
-                            data={
-                                "verification_code": code
-                            }
-                        )
-
-                        if not success:
-                            return Response(
-                                result,
-                                status=status.HTTP_400_BAD_REQUEST
-                            )
-
-                    
-                    from channels.layers import get_channel_layer
-                    from asgiref.sync import async_to_sync
-
-                    channel_layer = get_channel_layer()
-
-                    async_to_sync(channel_layer.group_send)(
-                        f"user_{participant.user.id}",
-                        {
-                            "type": "ride_status",
-                            "ride_id": str(ride.id),
-                            "status": "in_progress",
-                            "data": {
-                                "ride_id": str(ride.id),
-                                "status": "in_progress",
-                                "verified_user_id": str(participant.user.id)
-                            }
-                        }
-                    )
-                    return Response({'status': 'verified', 'type': 'pool_participant', 'user': participant.user.id}, status=status.HTTP_200_OK)
-                    
-            return Response({'error': 'Invalid verification code'}, status=status.HTTP_400_BAD_REQUEST)
         except Ride.DoesNotExist:
             return Response({'error': 'Ride record not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        if not success:
+            return Response(result, status=status.HTTP_400_BAD_REQUEST)
+
+        verified_user_id = result.get('verified_user_id')
+        is_primary_rider = verified_user_id == str(ride.rider_id)
+
+        from channels.layers import get_channel_layer
+        from asgiref.sync import async_to_sync
+
+        channel_layer = get_channel_layer()
+        async_to_sync(channel_layer.group_send)(
+            f"user_{verified_user_id}",
+            {
+                "type": "ride_status",
+                "ride_id": str(ride.id),
+                "status": "in_progress",
+                "data": {
+                    "ride_id": str(ride.id),
+                    "status": "in_progress",
+                    "verified_user_id": verified_user_id
+                }
+            }
+        )
+
+        return Response({
+            "status": "verified",
+            "type": "primary_rider" if is_primary_rider else "pool_participant",
+            "user": verified_user_id,
+        }, status=status.HTTP_200_OK)
 
 class DriverRideRequestsView(APIView):
     """

@@ -148,9 +148,7 @@ class LocationConsumer(AsyncWebsocketConsumer):
                 
             elif message_type == "location_broadcast":
                 await self.handle_location_broadcast(data)
-            elif message_type == "verify_pickup_pin":
-                await self.handle_verify_pickup_pin(data)
-                
+
             # Changed to 'elif' to avoid double-checking if another type hit
             elif message_type == "driver_location_update":
                 ride_id = data.get('ride_id')
@@ -413,6 +411,12 @@ class LocationConsumer(AsyncWebsocketConsumer):
             "type": "route_updated",
             "optimized_route": event["optimized_route"],
         }))
+
+    async def kyc_reminder(self, event):
+        await self.send(text_data=json.dumps({
+            "type": "kyc_reminder",
+            **event["data"],
+        }))
     
     async def handle_location_broadcast(self, data):
         ride_id = data.get("ride_id")
@@ -434,19 +438,6 @@ class LocationConsumer(AsyncWebsocketConsumer):
             "latitude": event["latitude"],
             "longitude": event["longitude"]
         }))
-    async def handle_verify_pickup_pin(self, data):
-        ride_id = data.get("ride_id")
-        pin = data.get("pin")
-        # In a production environment, cross-verify against ride.pickup_pin database column
-        if pin == "1234": 
-            await self.channel_layer.group_send(
-                f"ride_{ride_id}",
-                {
-                    "type": "status_relay",
-                    "status": "in_progress",
-                    "message": "Start code verified! Trip is now in progress."
-                }
-            )
     async def ride_started(self,event):
 
         await self.send(
@@ -455,12 +446,6 @@ class LocationConsumer(AsyncWebsocketConsumer):
             "ride_id":event["ride_id"]
         })
         )
-    async def status_relay(self, event):
-        await self.send(text_data=json.dumps({
-            "type": "status_updated",
-            "status": event["status"],
-            "message": event["message"]
-        }))
     async def send_ride_request(self, event):
         print("DRIVER EVENT RECEIVED:", event)
 

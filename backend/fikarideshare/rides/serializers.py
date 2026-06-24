@@ -115,7 +115,8 @@ class RideSerializer(serializers.ModelSerializer):
     pickup_location = serializers.SerializerMethodField()
     dropoff_location = serializers.SerializerMethodField()
     participants = serializers.SerializerMethodField()
-   
+    rider_pickup_status = serializers.SerializerMethodField()
+
     class Meta:
         model = Ride
         fields = [
@@ -128,7 +129,8 @@ class RideSerializer(serializers.ModelSerializer):
             'surge_multiplier', 'passenger_count', 'notes',
             'scheduled_pickup_time', 'requested_at', 'driver_assigned_at',
             'driver_arrived_at', 'started_at', 'completed_at',
-            'cancelled_at', 'cancellation_reason','participants','verification_code'
+            'cancelled_at', 'cancellation_reason','participants','verification_code',
+            'rider_pickup_status',
         ]
         read_only_fields = fields
    
@@ -155,17 +157,38 @@ class RideSerializer(serializers.ModelSerializer):
         # is already exposed via the top-level `rider` field - excluding
         # them here keeps this field's contract exactly what it was before
         # that row existed (other passengers only, not the requester).
-        accepted_participants = (
+        #
+        # status__in includes PICKED_UP/DROPPED_OFF (not just ACCEPTED) -
+        # a participant must stay visible through their whole journey, or
+        # they silently vanish from the driver's rider list the instant
+        # their own OTP is verified.
+        active_participants = (
             obj.participants.filter(
-                status=RideParticipant.Status.ACCEPTED,
+                status__in=[
+                    RideParticipant.Status.ACCEPTED,
+                    RideParticipant.Status.PICKED_UP,
+                    RideParticipant.Status.DROPPED_OFF,
+                ],
                 is_organizer=False,
             )
         )
 
         return SharedRideParticipantSerializer(
-            accepted_participants,
+            active_participants,
             many=True
         ).data
+
+    def get_rider_pickup_status(self, obj):
+        # The primary rider's own pickup state, tracked on their mirrored
+        # organizer RideParticipant row - NOT obj.status, which is the
+        # ride-wide trip status and flips to in_progress as soon as ANY
+        # participant (organizer or pooled passenger) is picked up. Using
+        # obj.status here would make every rider's UI show the primary
+        # rider as picked up the moment a different pooled passenger is
+        # verified, regardless of whether the primary rider was ever
+        # actually scanned in.
+        organizer = obj.participants.filter(is_organizer=True).first()
+        return organizer.status if organizer else None
 
 
 class RideStatusUpdateSerializer(serializers.Serializer):

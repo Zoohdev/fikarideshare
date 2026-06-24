@@ -632,9 +632,21 @@ class RideService:
         print("UPDATE_RIDE_STATUS CALLED")
         print("NEW STATUS:", new_status)
         if new_status not in valid_transitions.get(ride.status, []):
-            return False, {
-                'error': f'Invalid transition from {ride.status} to {new_status}'
-            }
+            # Exception: in a shared ride, the trip is already IN_PROGRESS
+            # once the first passenger is picked up, but each subsequent
+            # passenger still has to submit their own OTP. That call also
+            # targets new_status=IN_PROGRESS while ride.status is already
+            # IN_PROGRESS - which the transition table above would
+            # otherwise reject as a no-op transition.
+            is_repeat_pickup_verification = (
+                new_status == Ride.Status.IN_PROGRESS
+                and ride.status == Ride.Status.IN_PROGRESS
+                and (data.get('otp') or data.get('verification_code'))
+            )
+            if not is_repeat_pickup_verification:
+                return False, {
+                    'error': f'Invalid transition from {ride.status} to {new_status}'
+                }
         channel_layer = get_channel_layer()
         async_to_sync(channel_layer.group_send)(
                 f"tracking_{ride.id}",
@@ -644,35 +656,56 @@ class RideService:
                 }
             )
         # 2. HANDLE ACTIONS AND TIMESTAMPS
+        verified_participant = None
         if new_status == Ride.Status.IN_PROGRESS:
             provided_otp = data.get('otp') or data.get('verification_code')
-            
-            # Check if this OTP belongs to the main rider
+
+            # Check if this OTP belongs to the main rider (their mirrored
+            # organizer RideParticipant row, kept in sync with
+            # ride.verification_code since ride creation).
             if str(provided_otp) == str(ride.verification_code):
-                ride.started_at = timezone.now()
+                if not ride.started_at:
+                    ride.started_at = timezone.now()
+                verified_participant = ride.participants.filter(is_organizer=True).first()
             else:
                 # If it's a shared ride, check if it belongs to a participant.
-                # Restricted to ACCEPTED - a PENDING participant already has
-                # an auto-generated pickup_code (RideParticipant.save() sets
-                # one for everyone), so without this filter their own code
-                # would mark them picked up before the driver ever approved
-                # them, bypassing Accept/Decline entirely.
+                # Status is restricted to ACCEPTED/PICKED_UP - ACCEPTED is the
+                # real gate (a PENDING participant already has an
+                # auto-generated pickup_code, so without this filter their
+                # own code would mark them picked up before the driver ever
+                # approved them, bypassing Accept/Decline entirely).
+                # PICKED_UP is included so re-submitting the same OTP (e.g.
+                # after the ride-wide status already flipped to IN_PROGRESS
+                # for an earlier passenger) is a no-op instead of a false
+                # "Invalid verification code" rejection.
                 if ride.ride_type == 'shared':
                     participant = ride.participants.filter(
                         pickup_code=provided_otp,
-                        status=RideParticipant.Status.ACCEPTED,
+                        status__in=[
+                            RideParticipant.Status.ACCEPTED,
+                            RideParticipant.Status.PICKED_UP,
+                        ],
                     ).first()
                     if participant:
-                        participant.status = RideParticipant.Status.PICKED_UP
-                        participant.picked_up_at = timezone.now()
-                        participant.save()
-                        # Do not block the transition, but we are just validating a passenger
+                        verified_participant = participant
                     else:
                         return False, {'error': 'Invalid verification code.'}
                 else:
                     return False, {'error': 'Invalid verification code.'}
 
-            
+            if (
+                verified_participant
+                and verified_participant.status != RideParticipant.Status.PICKED_UP
+            ):
+                verified_participant.status = RideParticipant.Status.PICKED_UP
+                verified_participant.picked_up_at = timezone.now()
+                verified_participant.save()
+
+            data['verified_user_id'] = (
+                str(verified_participant.user_id) if verified_participant else None
+            )
+
+
         elif new_status == Ride.Status.DRIVER_ARRIVING:
             pass  
         elif new_status == Ride.Status.ARRIVED:

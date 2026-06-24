@@ -326,7 +326,20 @@ class RideParticipant(models.Model):
     def save(self, *args, **kwargs):
         if not self.pickup_code:
             import random
-            self.pickup_code = str(random.randint(1000, 9999))
+            # Codes are randomly drawn from a 9000-value space - with several
+            # participants in the same shared ride, two could otherwise
+            # collide, and OTP verification would silently pick up the wrong
+            # passenger (it matches on pickup_code within the ride, not on
+            # who actually typed it in). Regenerate on collision instead.
+            existing_codes = set(
+                RideParticipant.objects.filter(ride_id=self.ride_id)
+                .exclude(pk=self.pk)
+                .values_list('pickup_code', flat=True)
+            )
+            code = str(random.randint(1000, 9999))
+            while code in existing_codes:
+                code = str(random.randint(1000, 9999))
+            self.pickup_code = code
         super().save(*args, **kwargs)
 
 
