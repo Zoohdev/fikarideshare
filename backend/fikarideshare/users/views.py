@@ -4,9 +4,10 @@ from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenRefreshView
+from rest_framework_simplejwt.exceptions import TokenError
 from django.utils import timezone
 
-from .models import User
+from .models import User, BiometricData
 from .serializers import (
     UserRegistrationSerializer,
     UserLoginSerializer,
@@ -149,10 +150,10 @@ class BiometricChallengeView(APIView):
             )
        
         try:
-            credential = BiometricCredential.objects.get(
+            credential = BiometricData.objects.get(
                 credential_id=credential_id
             )
-        except BiometricCredential.DoesNotExist:
+        except BiometricData.DoesNotExist:
             return Response(
                 {'error': 'Credential not found'},
                 status=status.HTTP_404_NOT_FOUND
@@ -185,14 +186,14 @@ class LogoutView(APIView):
     permission_classes = [IsAuthenticated]
    
     def post(self, request):
-        try:
-            refresh_token = request.data.get('refresh_token')
-            if refresh_token:
+        refresh_token = request.data.get('refresh_token')
+        if refresh_token:
+            try:
                 token = RefreshToken(refresh_token)
                 token.blacklist()
-        except Exception:
-            pass  # Token may already be blacklisted
-       
+            except TokenError:
+                pass  # Token already invalid/blacklisted
+
         return Response({'message': 'Successfully logged out.'})
 
 

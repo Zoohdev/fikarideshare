@@ -1,10 +1,15 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.parsers import MultiPartParser, FormParser
 from .models import KYCVerification, DriverLicense
-from .serializers import KYCVerificationSerializer, DriverLicenseSerializer
+from .serializers import (
+    KYCVerificationSerializer,
+    KYCInitiateSerializer,
+    DriverLicenseSerializer,
+)
+from .services import KYCManager
 
 class KYCSubmitAndStatusView(APIView):
     """
@@ -25,22 +30,50 @@ class KYCSubmitAndStatusView(APIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     def post(self, request):
-        serializer = KYCVerificationSerializer(data=request.data, context={'request': request})
-        if serializer.is_valid():
-            verification = serializer.save(user=request.user)
-           
-            # --- CELERY ASYNC WORKER TRIGGER POINT ---
-            # process_kyc_verification_task.delay(verification.id)
-           
+        serializer = KYCInitiateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        document_type = serializer.validated_data['document_type']
+        document_country = serializer.validated_data['document_country']
+
+        manager = KYCManager()
+        success, result = manager.initiate_verification(request.user, document_type)
+        if not success:
             return Response(
-                {
-                    "message": "Identity documentation submitted successfully.",
-                    "verification_id": verification.id,
-                    "status": verification.status
-                },
-                status=status.HTTP_201_CREATED
+                {"error": "Unable to start identity verification.", "detail": result},
+                status=status.HTTP_502_BAD_GATEWAY
             )
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        verification = KYCVerification.objects.get(id=result['verification_id'])
+        if verification.document_country != document_country:
+            verification.document_country = document_country
+            verification.save(update_fields=['document_country'])
+
+        return Response(
+            {
+                "message": "Identity verification started.",
+                "verification_id": verification.id,
+                "sdk_token": result['sdk_token'],
+                "status": verification.status
+            },
+            status=status.HTTP_201_CREATED
+        )
+
+
+class KYCWebhookView(APIView):
+    """
+    Webhook endpoint for Onfido verification results.
+    """
+
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        # Verify webhook signature in production
+        manager = KYCManager()
+        manager.process_webhook(request.data)
+
+        return Response(status=status.HTTP_200_OK)
 
 
 class DriverLicenseSubmitView(APIView):

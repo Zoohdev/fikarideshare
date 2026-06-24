@@ -154,12 +154,16 @@ class VehicleManager:
         """
         Register a new vehicle for a driver.
         """
+        # Normalize to uppercase to match VehicleCreateSerializer.validate_license_plate
+        # so the uniqueness check below can't be bypassed by case alone.
+        vehicle_data['license_plate'] = vehicle_data['license_plate'].upper()
+
         # Check if license plate already exists
         if Vehicle.objects.filter(
             license_plate=vehicle_data['license_plate']
         ).exists():
             return False, None
-       
+
         vehicle = Vehicle.objects.create(
             driver=driver,
             **vehicle_data

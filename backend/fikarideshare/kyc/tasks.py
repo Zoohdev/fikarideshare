@@ -37,22 +37,34 @@ def check_pending_verifications():
 def send_kyc_reminder():
     """
     Send reminders to users with incomplete KYC.
+
+    Delivered over the same websocket channel layer used elsewhere in the
+    app (see rides/tasks.py) - there is no separate push-notification
+    provider (FCM/Expo) wired up in this codebase yet.
     """
     from users.models import User
-    from .tasks_notifications import send_push_notification
-   
+    from channels.layers import get_channel_layer
+    from asgiref.sync import async_to_sync
+
+    channel_layer = get_channel_layer()
+
     # Users who started but didn't complete KYC
     incomplete = User.objects.filter(
         kyc_status='in_progress',
         kyc_verifications__status=KYCVerification.Status.PENDING,
         kyc_verifications__created_at__lt=timezone.now() - timedelta(days=1)
     ).distinct()
-   
+
     for user in incomplete:
-        send_push_notification.delay(
-            user_id=str(user.id),
-            title='Complete Your Verification',
-            body='Complete your identity verification to start using the app.',
-            data={'action': 'complete_kyc'}
+        async_to_sync(channel_layer.group_send)(
+            f"user_{user.id}",
+            {
+                "type": "kyc_reminder",
+                "data": {
+                    "title": "Complete Your Verification",
+                    "body": "Complete your identity verification to start using the app.",
+                    "action": "complete_kyc",
+                },
+            }
         )
 

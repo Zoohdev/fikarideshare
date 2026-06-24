@@ -34,7 +34,6 @@ class VehicleViewSet(viewsets.ModelViewSet):
         ).order_by('-is_primary', '-created_at')
    
     def perform_create(self, serializer):
-        manager = VehicleManager()
         vehicle = serializer.save(driver=self.request.user)
        
         # Set as primary if first vehicle

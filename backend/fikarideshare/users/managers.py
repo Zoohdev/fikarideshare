@@ -39,22 +39,13 @@ class UserManager(BaseUserManager):
         return self.create_user(email, phone_number, first_name, last_name, password, **extra_fields)
     
     
-    # def get_available_drivers(self, point, radius_km):
-    #     """
-    #     Filters for drivers who are online, active, and within the radius.
-    #     """
-
-    #     drivers=self.filter(
-    #         user_type__in=['driver', 'both'],
-    #         is_online=True,
-    #         # Checks if the driver's current_location is within the radius (km)
-    #         current_location__distance_lte=(point, D(km=radius_km))
-    #     ).distinct()
-    #     print(f"DEBUG: Found {drivers.count()} drivers for point {point}")
-    #     return drivers
     def get_available_drivers(self, point, radius_km):
+        """
+        Filters for drivers who are online, active, and within the radius.
+        Includes users with user_type 'driver' or 'both'.
+        """
         return self.filter(
-            user_type='driver',         # Ensure this matches your field
-            is_online=True,             # Essential for availability
+            user_type__in=['driver', 'both'],
+            is_online=True,
             current_location__distance_lte=(point, D(km=radius_km))
-        )
+        ).distinct()

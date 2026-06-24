@@ -3,7 +3,7 @@ from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .models import User
+from .models import User, BiometricData
 
 
 class UserRegistrationSerializer(serializers.ModelSerializer):
@@ -104,14 +104,14 @@ class BiometricRegistrationSerializer(serializers.Serializer):
     device_type = serializers.CharField(max_length=50, required=False)
    
     def validate_credential_id(self, value):
-        if BiometricCredential.objects.filter(credential_id=value).exists():
+        if BiometricData.objects.filter(credential_id=value).exists():
             raise serializers.ValidationError('This credential is already registered.')
         return value
-   
+
     def create(self, validated_data):
         user = self.context['request'].user
-       
-        credential = BiometricCredential.objects.create(
+
+        credential = BiometricData.objects.create(
             user=user,
             **validated_data
         )
@@ -138,10 +138,10 @@ class BiometricLoginSerializer(serializers.Serializer):
         credential_id = attrs['credential_id']
        
         try:
-            credential = BiometricCredential.objects.select_related('user').get(
+            credential = BiometricData.objects.select_related('user').get(
                 credential_id=credential_id
             )
-        except BiometricCredential.DoesNotExist:
+        except BiometricData.DoesNotExist:
             raise serializers.ValidationError('Credential not found.')
        
         if not credential.user.is_active:

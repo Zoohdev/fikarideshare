@@ -14,16 +14,42 @@ class RatingCategoryListView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        user_type = getattr(request.user, 'user_type', 'both')
-       
-        # Determine target list tags to return to the smartphone camera UI
-        # If a rider calls, show tags that apply to drivers (and vice versa)
-        target_applies = 'driver' if user_type == 'rider' else 'rider'
+        user_type = getattr(request.user, 'user_type', None)
+        ride_id = request.query_params.get('ride_id')
 
-        categories = RatingCategory.objects.filter(
-            Q(applies_to=target_applies) | Q(applies_to=RatingCategory.AppliesTo.BOTH),
-            is_active=True
-        )
+        # Determine target list tags to return to the smartphone camera UI.
+        # If the caller is rating as a rider, show tags that apply to drivers
+        # (and vice versa). When ride_id is given, derive the role from the
+        # actual ride instead of guessing from the account's user_type - this
+        # matters for 'both' accounts, who can be either party depending on
+        # the ride.
+        target_applies = None
+        if ride_id:
+            from rides.models import Ride
+            ride = Ride.objects.filter(id=ride_id).first()
+            if ride:
+                if request.user.id == ride.rider_id:
+                    target_applies = 'driver'
+                elif request.user.id == ride.driver_id:
+                    target_applies = 'rider'
+
+        if target_applies is None:
+            if user_type == 'rider':
+                target_applies = 'driver'
+            elif user_type == 'driver':
+                target_applies = 'rider'
+            # 'both' (or unknown) without ride context: role can't be
+            # determined safely, so don't guess - return all active
+            # categories below instead of one wrong-sided list.
+
+        if target_applies:
+            categories = RatingCategory.objects.filter(
+                Q(applies_to=target_applies) | Q(applies_to=RatingCategory.AppliesTo.BOTH),
+                is_active=True
+            )
+        else:
+            categories = RatingCategory.objects.filter(is_active=True)
+
         serializer = RatingCategorySerializer(categories, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
