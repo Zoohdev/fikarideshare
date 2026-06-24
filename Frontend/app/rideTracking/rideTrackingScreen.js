@@ -1134,10 +1134,14 @@ console.log("Driver:", driverLocation);
   if (role === 'driver') {
     let allRiders = [];
     if (rideData.status !== 'completed' && rideData.status !== 'cancelled') {
-      allRiders.push({ 
-        id: rideData.rider.id, 
-        name: rideData.rider.first_name || 'Primary Rider', 
-        status: rideData.status, 
+      allRiders.push({
+        id: rideData.rider.id,
+        name: rideData.rider.first_name || 'Primary Rider',
+        // The primary rider's OWN pickup state, not the ride-wide trip
+        // status - rideData.status flips to 'in_progress' as soon as ANY
+        // pool passenger is picked up, which would show the primary rider
+        // as picked up too even if they were never actually verified.
+        status: rideData.rider_pickup_status || 'accepted',
         isPrimary: true,
         pickup: rideData.pickup_address,
         dropoff: rideData.dropoff_address
