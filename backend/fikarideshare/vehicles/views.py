@@ -1,3 +1,5 @@
+from django.conf import settings
+from django.utils import timezone
 from rest_framework import generics, status, viewsets
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -35,11 +37,21 @@ class VehicleViewSet(viewsets.ModelViewSet):
    
     def perform_create(self, serializer):
         vehicle = serializer.save(driver=self.request.user)
-       
+
         # Set as primary if first vehicle
         if not self.request.user.vehicles.exclude(id=vehicle.id).exists():
             vehicle.is_primary = True
-            vehicle.save()
+
+        if not settings.DEKRA_API_KEY:
+            # No DEKRA account configured for this environment - approve
+            # locally instead of leaving every vehicle stuck at pending
+            # forever (the request_inspection action would just fail
+            # against a provider we have no credentials for anyway). Once
+            # DEKRA_API_KEY is set, new vehicles go through the real flow.
+            vehicle.dekra_status = Vehicle.VerificationStatus.APPROVED
+            vehicle.dekra_verified_at = timezone.now()
+
+        vehicle.save()
    
     @action(detail=True, methods=['post'])
     def set_primary(self, request, pk=None):

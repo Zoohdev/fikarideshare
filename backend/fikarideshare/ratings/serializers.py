@@ -8,9 +8,17 @@ class RatingCategorySerializer(serializers.ModelSerializer):
         fields = ['id', 'name', 'description', 'icon', 'category_type', 'applies_to']
 
 
+class RaterSerializer(serializers.Serializer):
+    """Minimal public-facing rater info for review history display."""
+    id = serializers.UUIDField(read_only=True)
+    full_name = serializers.CharField(read_only=True)
+    profile_photo = serializers.ImageField(read_only=True)
+
+
 class RatingSerializer(serializers.ModelSerializer):
     # Read representation details for frontend visualization
     categories_detail = RatingCategorySerializer(source='categories', many=True, read_only=True)
+    rater_detail = RaterSerializer(source='rater', read_only=True)
     # Write processing mechanism using UUID primaries
     category_ids = serializers.PrimaryKeyRelatedField(
         queryset=RatingCategory.objects.filter(is_active=True),
@@ -27,7 +35,7 @@ class RatingSerializer(serializers.ModelSerializer):
     class Meta:
         model = Rating
         fields = [
-            'id', 'ride', 'rater', 'rated_user', 'rater_type',
+            'id', 'ride', 'rater', 'rater_detail', 'rated_user', 'rater_type',
             'score', 'comment', 'categories_detail', 'category_ids',
             'target_user_id', 'created_at',
         ]

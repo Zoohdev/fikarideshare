@@ -1,3 +1,5 @@
+from django.conf import settings
+from django.utils import timezone
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -105,6 +107,17 @@ class DriverLicenseSubmitView(APIView):
         serializer = DriverLicenseSerializer(data=request.data, context={'request': request})
         if serializer.is_valid():
             license_record = serializer.save(user=request.user)
+
+            # There's no real verification path for DriverLicense today even
+            # with a configured ONFIDO_API_TOKEN (it's only ever linked to a
+            # KYCVerification, never auto-checked) - gating on the same
+            # token keeps this consistent with the KYC dev-approval above
+            # rather than leaving every submission stuck at pending forever.
+            if not settings.ONFIDO_API_TOKEN:
+                license_record.status = DriverLicense.Status.VERIFIED
+                license_record.verified_at = timezone.now()
+                license_record.save(update_fields=['status', 'verified_at'])
+
             return Response(
                 {
                     "message": "Driver license submitted successfully for verification validation.",
