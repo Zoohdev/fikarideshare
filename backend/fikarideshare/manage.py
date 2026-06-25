@@ -3,6 +3,16 @@
 import os
 import sys
 
+# Must happen before Daphne/Twisted's asyncio reactor gets installed (which
+# happens very early, as a side effect of importing daphne - earlier than
+# config/asgi.py gets imported). Windows' default ProactorEventLoop is
+# incompatible with redis.asyncio's timeout handling used by channels_redis,
+# causing every websocket connection to die within seconds with a spurious
+# "Timeout reading from 127.0.0.1:6379" even though redis itself is healthy.
+import asyncio
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
 
 def main():
     """Run administrative tasks."""

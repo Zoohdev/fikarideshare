@@ -1,4 +1,16 @@
+import asyncio
 import os
+import sys
+
+# windows' default ProactorEventLoop has a known incompatibility with
+# redis.asyncio's timeout handling (channels_redis), causing spurious
+# "Timeout reading from 127.0.0.1:6379" errors that kill every websocket
+# connection within seconds even though redis itself is healthy. The
+# selector event loop doesn't have this issue. Must be set before Daphne
+# creates its event loop, so this has to happen at import time here.
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
 from django.core.asgi import get_asgi_application
 
 from channels.routing import ProtocolTypeRouter, URLRouter
