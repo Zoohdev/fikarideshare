@@ -218,14 +218,32 @@ class StripeService:
                 return_url='rideshare://connect-complete',
                 type='account_onboarding',
             )
-           
+
             return True, {
                 'account_id': account.id,
                 'onboarding_url': account_link.url,
             }
         except stripe.error.StripeError as e:
             return False, {'error': str(e)}
-   
+
+    def create_account_link(self, connect_account_id: str) -> Tuple[bool, Dict]:
+        """
+        Get a fresh onboarding link for an existing Connect account - used
+        when a driver already has an account (e.g. a previous link expired
+        or they didn't finish onboarding) so we don't create a duplicate
+        Stripe account every time they retry.
+        """
+        try:
+            account_link = stripe.AccountLink.create(
+                account=connect_account_id,
+                refresh_url='rideshare://connect-refresh',
+                return_url='rideshare://connect-complete',
+                type='account_onboarding',
+            )
+            return True, {'onboarding_url': account_link.url}
+        except stripe.error.StripeError as e:
+            return False, {'error': str(e)}
+
     def transfer_to_driver(
         self,
         amount: Decimal,
@@ -494,6 +512,15 @@ class PaymentService:
         payment.provider_charge_id = capture_result.get('charge_id', '')
         payment.completed_at = timezone.now()
         payment.save(update_fields=['status', 'provider_charge_id', 'completed_at'])
+
+        from notifications.services import create_notification
+        create_notification(
+            user=user,
+            notification_type='payment_completed',
+            title='Payment successful',
+            body=f'{currency} {amount} - {description or "payment"} completed.',
+            data={'payment_id': str(payment.id)},
+        )
 
         return True, {
             'payment_id': str(payment.id),

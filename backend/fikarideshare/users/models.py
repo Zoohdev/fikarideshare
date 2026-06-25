@@ -66,6 +66,12 @@ class User(AbstractBaseUser, PermissionsMixin):
     # Stripe customer reference (payments.services.StripeService reads/writes this)
     stripe_customer_id = models.CharField(max_length=255, blank=True, null=True)
 
+    # Stripe Connect Express account for drivers receiving payouts. Kept in
+    # sync by the account.updated webhook (payments/views.py) rather than
+    # trusted from the client.
+    stripe_connect_account_id = models.CharField(max_length=255, blank=True, null=True)
+    payouts_enabled = models.BooleanField(default=False)
+
     # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

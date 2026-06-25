@@ -1,5 +1,16 @@
 from rest_framework import serializers
-from .models import Wallet, PaymentMethod, Payment, DriverPayout
+from .models import Wallet, PaymentMethod, Payment, DriverPayout, WalletTransaction
+
+
+class WalletTransactionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = WalletTransaction
+        fields = [
+            'id', 'transaction_type', 'source', 'amount',
+            'balance_after', 'reference_id', 'description', 'created_at',
+        ]
+        read_only_fields = fields
+
 
 class WalletSerializer(serializers.ModelSerializer):
     """

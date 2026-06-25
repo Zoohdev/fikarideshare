@@ -4,11 +4,12 @@ from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from django.shortcuts import get_object_or_404
 from django.db import transaction
+from django.utils import timezone
 from decimal import Decimal
 from .models import PaymentMethod, Payment, DriverPayout, Wallet, WalletTransaction
 from .serializers import (
     PaymentMethodSerializer, PaymentSerializer,
-    WalletSerializer, DriverPayoutSerializer
+    WalletSerializer, DriverPayoutSerializer, WalletTransactionSerializer
 )
 from .services import StripeService, PaymentService
 
@@ -144,8 +145,11 @@ class WalletBalanceAndHistoryView(APIView):
             user=request.user,
             defaults={'currency': 'KES'} # Adapting to regional currency operations
         )
-        serializer = WalletSerializer(wallet)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        data = WalletSerializer(wallet).data
+        data['transactions'] = WalletTransactionSerializer(
+            wallet.transactions.all()[:50], many=True
+        ).data
+        return Response(data, status=status.HTTP_200_OK)
 
 
 class WalletTopUpView(APIView):
@@ -201,24 +205,106 @@ class WalletTopUpView(APIView):
 
 class DriverPayoutView(APIView):
     """
-    Batch tracking endpoints to aggregate earnings for fleet drivers.
+    Driver-initiated withdrawal of earnings to their Stripe Connect account.
     """
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        # Enforce that only driver type user models can invoke withdrawals
-        if getattr(request.user, 'user_type', None) != 'driver':
+        driver = request.user
+        if getattr(driver, 'user_type', None) not in ('driver', 'both'):
             return Response({"error": "Payout request restricted to driver accounts."}, status=status.HTTP_403_FORBIDDEN)
 
-        serializer = DriverPayoutSerializer(data=request.data, context={'request': request})
-        if serializer.is_valid():
-            payout = serializer.save(driver=request.user, status=DriverPayout.Status.PENDING)
+        if not driver.stripe_connect_account_id or not driver.payouts_enabled:
             return Response(
-                {
-                    "message": "Payout instruction queued for clearing verification processing.",
-                    "payout_id": payout.id,
-                    "status": payout.status
-                },
-                status=status.HTTP_201_CREATED
+                {"error": "Set up payouts (Stripe Connect onboarding) before requesting a withdrawal."},
+                status=status.HTTP_400_BAD_REQUEST
             )
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = DriverPayoutSerializer(data=request.data, context={'request': request})
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        payout = serializer.save(driver=driver, status=DriverPayout.Status.PROCESSING)
+
+        success, result = StripeService().transfer_to_driver(
+            amount=payout.amount,
+            currency=payout.currency,
+            driver_account_id=driver.stripe_connect_account_id,
+            metadata={'payout_id': str(payout.id)},
+        )
+
+        if not success:
+            payout.status = DriverPayout.Status.FAILED
+            payout.save(update_fields=['status'])
+            return Response(
+                {"error": result.get('error', 'Transfer failed.'), "payout_id": payout.id, "status": payout.status},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        payout.status = DriverPayout.Status.COMPLETED
+        payout.provider_payout_id = result['id']
+        payout.processed_at = timezone.now()
+        payout.save(update_fields=['status', 'provider_payout_id', 'processed_at'])
+
+        from notifications.services import create_notification
+        create_notification(
+            user=driver,
+            notification_type='payout_completed',
+            title='Payout sent',
+            body=f'{payout.currency} {payout.amount} sent to your bank account.',
+            data={'payout_id': str(payout.id)},
+        )
+
+        return Response(
+            {
+                "message": "Payout sent to your bank account.",
+                "payout_id": payout.id,
+                "status": payout.status
+            },
+            status=status.HTTP_201_CREATED
+        )
+
+
+class ConnectOnboardingView(APIView):
+    """
+    Starts (or resumes) Stripe Connect Express onboarding for a driver, so
+    Stripe's own hosted flow collects banking details - we never see or
+    store raw bank account numbers ourselves.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        driver = request.user
+        if getattr(driver, 'user_type', None) not in ('driver', 'both'):
+            return Response({"error": "Payout onboarding is for driver accounts."}, status=status.HTTP_403_FORBIDDEN)
+
+        stripe_service = StripeService()
+
+        if driver.stripe_connect_account_id:
+            success, result = stripe_service.create_account_link(driver.stripe_connect_account_id)
+        else:
+            success, result = stripe_service.create_connect_account(driver)
+            if success:
+                driver.stripe_connect_account_id = result['account_id']
+                driver.save(update_fields=['stripe_connect_account_id'])
+
+        if not success:
+            return Response(result, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({"onboarding_url": result['onboarding_url']}, status=status.HTTP_200_OK)
+
+
+class ConnectStatusView(APIView):
+    """
+    Whether the driver has a Connect account and can currently receive
+    payouts. `payouts_enabled` is kept in sync by the `account.updated`
+    handler in payments/webhooks.py, not checked live against Stripe here.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        driver = request.user
+        return Response({
+            "onboarded": bool(driver.stripe_connect_account_id),
+            "payouts_enabled": driver.payouts_enabled,
+        }, status=status.HTTP_200_OK)
