@@ -410,6 +410,24 @@ class EmergencySOS(models.Model):
         db_table = 'emergency_sos_alerts'
 
 
+class SOSLocationPing(models.Model):
+    """
+    Persisted trail of GPS pings received during an active SOS incident.
+    SOSTrackingConsumer relays these live to listeners (family/dispatch)
+    but previously never saved them, leaving no record once the live
+    websocket connection closed.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    sos = models.ForeignKey(EmergencySOS, on_delete=models.CASCADE, related_name='location_pings')
+    latitude = models.FloatField()
+    longitude = models.FloatField()
+    recorded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'sos_location_pings'
+        ordering = ['recorded_at']
+
+
 def default_expiry():
     return timezone.now() + timedelta(days=1)
 

@@ -54,47 +54,71 @@ class PricingService:
    
     # Platform commission percentage
     PLATFORM_COMMISSION = Decimal('0.25')  # 25%
-   
+
+    # Shared-ride fixed-cost amortization assumes this many riders splitting
+    # base_fare/booking_fee - used in place of a flat percentage discount
+    # (see calculate_fare's is_shared branch).
+    SHARED_RIDE_ASSUMED_POOL_SIZE = 2
+
     def calculate_fare(
         self,
         distance_meters: int,
         duration_seconds: int,
         vehicle_type: str = 'economy',
         surge_multiplier: float = 1.0,
-        promo_code: str = None
+        promo_code: str = None,
+        is_shared: bool = False
     ) -> Dict:
         """
         Calculate fare for a ride.
-       
+
         Args:
             distance_meters: Trip distance in meters
             duration_seconds: Trip duration in seconds
             vehicle_type: Type of vehicle
             surge_multiplier: Dynamic pricing multiplier
             promo_code: Promotional code for discount
-       
+            is_shared: When true, amortizes the fixed cost components
+                (base_fare, booking_fee) across SHARED_RIDE_ASSUMED_POOL_SIZE
+                riders instead of applying a flat discount to the total -
+                distance_fare/time_fare stay full since the rider still
+                travels the same real distance whether or not anyone else
+                is in the car. The actual amount charged per participant is
+                still settled by FareSplitService at ride completion, based
+                on each rider's real distance - this only affects the
+                upfront estimate shown before a pool exists to split.
+
         Returns:
             Dict with fare breakdown
         """
         rates = self.BASE_RATES.get(vehicle_type, self.BASE_RATES['economy'])
-       
+
         # Convert units
         distance_km = Decimal(distance_meters) / Decimal('1000')
         duration_minutes = Decimal(duration_seconds) / Decimal('60')
         surge = Decimal(str(surge_multiplier))
-       
+
         # Calculate components
         base_fare = rates['base_fare']
+        booking_fee = rates['booking_fee']
+        if is_shared:
+            base_fare = (base_fare / self.SHARED_RIDE_ASSUMED_POOL_SIZE).quantize(
+                Decimal('0.01'), rounding=ROUND_HALF_UP
+            )
+            booking_fee = (booking_fee / self.SHARED_RIDE_ASSUMED_POOL_SIZE).quantize(
+                Decimal('0.01'), rounding=ROUND_HALF_UP
+            )
+
         distance_fare = (distance_km * rates['per_km']).quantize(
             Decimal('0.01'), rounding=ROUND_HALF_UP
         )
         time_fare = (duration_minutes * rates['per_minute']).quantize(
             Decimal('0.01'), rounding=ROUND_HALF_UP
         )
-       
+
         # Subtotal before surge
         subtotal = base_fare + distance_fare + time_fare
-       
+
         # Apply surge
         if surge > 1:
             surge_amount = (subtotal * (surge - 1)).quantize(
@@ -102,11 +126,8 @@ class PricingService:
             )
         else:
             surge_amount = Decimal('0.00')
-       
+
         subtotal_with_surge = subtotal + surge_amount
-       
-        # Add booking fee
-        booking_fee = rates['booking_fee']
        
         # Apply minimum fare
         if subtotal_with_surge < rates['minimum_fare']:
@@ -142,6 +163,7 @@ class PricingService:
             'driver_earnings': float(driver_earnings),
             'platform_fee': float(platform_fee),
             'currency': 'USD',
+            'is_shared_pricing': is_shared,
         }
    
     def calculate_surge_multiplier(

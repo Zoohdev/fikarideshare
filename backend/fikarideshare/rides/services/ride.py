@@ -284,11 +284,12 @@ class RideService:
         pickup_lng: float,
         dropoff_lat: float,
         dropoff_lng: float,
-        vehicle_type: str = 'economy'
+        vehicle_type: str = 'economy',
+        is_shared: bool = False
     ) -> Dict:
         """
         Calculate fare estimate for a ride.
-       
+
         Returns:
             Dict with fare breakdown and route info
         """
@@ -297,15 +298,16 @@ class RideService:
             origin=(pickup_lat, pickup_lng),
             destination=(dropoff_lat, dropoff_lng)
         )
-       
+
         if not directions:
             return {'error': 'Unable to calculate route'}
-       
+
         # Calculate fare
         fare = self.pricing.calculate_fare(
             distance_meters=directions['distance_meters'],
             duration_seconds=directions['duration_in_traffic_seconds'],
-            vehicle_type=vehicle_type
+            vehicle_type=vehicle_type,
+            is_shared=is_shared
         )
        
         # Get pickup/dropoff addresses
@@ -383,7 +385,8 @@ class RideService:
         estimate = self.estimate_fare(
             pickup_lat, pickup_lng,
             dropoff_lat, dropoff_lng,
-            vehicle_type
+            vehicle_type,
+            is_shared=(ride_type == 'shared')
         )
        
         if 'error' in estimate:
@@ -604,7 +607,16 @@ class RideService:
             'eta_seconds': eta_seconds,
             'eta_minutes': round(eta_seconds / 60) if eta_seconds else None,
         })
-       
+
+        from notifications.services import create_notification
+        create_notification(
+            user=ride.rider,
+            notification_type='ride_accepted',
+            title='Driver found',
+            body=f'{driver.full_name} is on the way in a {vehicle.color} {vehicle.make} {vehicle.model}.',
+            data={'ride_id': str(ride.id)},
+        )
+
         return True, {
             'ride_id': str(ride.id),
             'status': ride.status,
@@ -732,6 +744,26 @@ class RideService:
             # A participant may have just been marked PICKED_UP above -
             # their dropoff stop is now valid to schedule.
             self.push_optimized_route(ride)
+        elif new_status == Ride.Status.COMPLETED:
+            from notifications.services import create_notification
+            for recipient in filter(None, [ride.rider, ride.driver]):
+                create_notification(
+                    user=recipient,
+                    notification_type='ride_completed',
+                    title='Ride completed',
+                    body=f'Trip finished - fare: {ride.final_fare or ride.estimated_fare}',
+                    data={'ride_id': str(ride.id)},
+                )
+        elif new_status == Ride.Status.CANCELLED:
+            from notifications.services import create_notification
+            for recipient in filter(None, [ride.rider, ride.driver]):
+                create_notification(
+                    user=recipient,
+                    notification_type='ride_cancelled',
+                    title='Ride cancelled',
+                    body=ride.cancellation_reason or 'The ride was cancelled.',
+                    data={'ride_id': str(ride.id)},
+                )
 
         # 4. BROADCAST TO CHANNELS
         broadcast_payload = {
@@ -743,10 +775,11 @@ class RideService:
             'dropoff_lng': ride.dropoff_location.x,
         }
         self._broadcast_ride_update(ride, broadcast_payload)
-        
+
         return True, {
             'ride_id': str(ride.id),
             'status': ride.status,
+            'verified_user_id': data.get('verified_user_id'),
         }
    
     def _decline_stale_pending_participants(self, ride: Ride):
@@ -812,12 +845,19 @@ class RideService:
         print("BROADCASTING STATUS:",ride.status)
         print("BROADCASTING STATUS:", ride.status)
         final_fare = float(ride.final_fare) if ride.final_fare is not None else 0.0
+        # Mirrors RideSerializer.get_rider_pickup_status exactly - the
+        # primary rider's own pickup state, not ride.status (which flips to
+        # in_progress as soon as ANY pooled passenger is picked up). Without
+        # this, REST responses and live broadcasts disagree during a
+        # multi-passenger ride.
+        organizer = ride.participants.filter(is_organizer=True).first()
         data = {
             'ride_id': str(ride.id),
             'status': ride.status,
             'ride_type': ride.ride_type,
             'final_fare': final_fare,
             'verification_code': ride.verification_code,
+            'rider_pickup_status': organizer.status if organizer else None,
             'timestamp': timezone.now().isoformat(),
             **(extra_data or {})
         }

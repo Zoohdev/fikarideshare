@@ -3,6 +3,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.decorators import action
+from rest_framework.parsers import MultiPartParser, FormParser
 from django.shortcuts import get_object_or_404
 from django.db.models import Q
 from django.db import transaction
@@ -11,7 +12,7 @@ from django.conf import settings
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
-from .models import Ride, RideParticipant,EmergencySOS,RideShareLink,RideLocation
+from .models import Ride, RideParticipant,EmergencySOS,RideShareLink,RideLocation,ChatMessage
 from .serializers import (
     RideEstimateSerializer,
     RideCreateSerializer,
@@ -20,7 +21,8 @@ from .serializers import (
     RideParticipantSerializer,
     InviteParticipantSerializer,
     EmergencySOS,
-    RideVerificationSerializer
+    RideVerificationSerializer,
+    ChatMessageSerializer
 )
 from .services.ride import RideService
 
@@ -35,25 +37,24 @@ class RideEstimateView(APIView):
     def post(self, request):
         serializer = RideEstimateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-       
+
         data = serializer.validated_data
         service = RideService()
-       
+        ride_type = request.data.get('ride_type', 'standard')
+
         estimate = service.estimate_fare(
             pickup_lat=data['pickup']['latitude'],
             pickup_lng=data['pickup']['longitude'],
             dropoff_lat=data['dropoff']['latitude'],
             dropoff_lng=data['dropoff']['longitude'],
-            vehicle_type=data['vehicle_type']
+            vehicle_type=data['vehicle_type'],
+            is_shared=(ride_type == 'shared')
         )
-       
+
         if 'error' in estimate:
             return Response(estimate, status=status.HTTP_400_BAD_REQUEST)
 
-        ride_type = request.data.get('ride_type', 'standard')
-        if ride_type == 'shared':
-            estimate['total'] = float(estimate['total']) * 0.75  # 25% cheaper fallback for choosing to share
-            estimate['is_shared_pricing'] = True
+        estimate['is_shared_pricing'] = ride_type == 'shared'
         return Response(estimate)
 
 
@@ -281,7 +282,20 @@ class RideViewSet(viewsets.ModelViewSet):
         route_sequence = RideService().compute_optimized_route(ride, current_lat, current_lng)
         return Response({"optimized_route": route_sequence}, status=status.HTTP_200_OK)
 
-    
+    @action(detail=True, methods=['get'])
+    def chat(self, request, pk=None):
+        """
+        Persisted chat history for a ride - chatScreen.js previously only
+        had AsyncStorage as a local cache with no way to recover history
+        on a fresh device/reinstall, even though ChatMessage rows were
+        already being saved by the websocket consumer.
+        """
+        ride = self.get_object()
+        messages = ride.messages.all()
+        serializer = ChatMessageSerializer(messages, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
     @action(detail=True, methods=['post'])
     def dropoff_user(self, request, pk=None):
         ride = self.get_object()
@@ -466,26 +480,11 @@ class RideVerificationView(APIView):
         if not success:
             return Response(result, status=status.HTTP_400_BAD_REQUEST)
 
+        # update_ride_status() above already broadcasts the verified
+        # in_progress status (with verified_user_id) to user_{ride.rider_id}
+        # via _broadcast_ride_update - no need to duplicate it here.
         verified_user_id = result.get('verified_user_id')
         is_primary_rider = verified_user_id == str(ride.rider_id)
-
-        from channels.layers import get_channel_layer
-        from asgiref.sync import async_to_sync
-
-        channel_layer = get_channel_layer()
-        async_to_sync(channel_layer.group_send)(
-            f"user_{verified_user_id}",
-            {
-                "type": "ride_status",
-                "ride_id": str(ride.id),
-                "status": "in_progress",
-                "data": {
-                    "ride_id": str(ride.id),
-                    "status": "in_progress",
-                    "verified_user_id": verified_user_id
-                }
-            }
-        )
 
         return Response({
             "status": "verified",
@@ -695,6 +694,52 @@ class TriggerSOSAlertView(APIView):
             "sos_id": str(sos_incident.id),
             "tracking_url": f"https://fika.co.za/safety/track/{sos_incident.id}/"
         }, status=status.HTTP_201_CREATED)
+
+
+class EmergencySOSResolveView(APIView):
+    """
+    Marks an SOS incident as resolved - nothing previously ever set
+    is_active/resolved_at, so incidents stayed "active" forever.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, sos_id):
+        sos_incident = get_object_or_404(EmergencySOS, id=sos_id, reporter=request.user)
+
+        sos_incident.is_active = False
+        sos_incident.resolved_at = timezone.now()
+        sos_incident.save(update_fields=['is_active', 'resolved_at'])
+
+        return Response({
+            "message": "Incident marked as resolved.",
+            "sos_id": str(sos_incident.id),
+            "resolved_at": sos_incident.resolved_at,
+        }, status=status.HTTP_200_OK)
+
+
+class EmergencySOSAudioUploadView(APIView):
+    """
+    Uploads the ambient audio recorded during an SOS incident, once it's
+    cleared - audio_recording_vault existed on the model but nothing ever
+    wrote to it.
+    """
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request, sos_id):
+        sos_incident = get_object_or_404(EmergencySOS, id=sos_id, reporter=request.user)
+
+        audio_file = request.FILES.get('audio')
+        if not audio_file:
+            return Response({"error": "audio file is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        sos_incident.audio_recording_vault = audio_file
+        sos_incident.save(update_fields=['audio_recording_vault'])
+
+        return Response({
+            "message": "Audio evidence uploaded.",
+            "sos_id": str(sos_incident.id),
+        }, status=status.HTTP_200_OK)
 
 
 class PublicTrackingAPIView(APIView):

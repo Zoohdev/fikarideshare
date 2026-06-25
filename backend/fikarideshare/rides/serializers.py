@@ -3,7 +3,7 @@ from django.contrib.gis.geos import Point
 from decimal import Decimal
 from users.serializers import UserProfileSerializer
 from vehicles.serializers import VehicleSerializer
-from .models import Ride, RideParticipant, RideLocation,EmergencySOS,RideShareLink
+from .models import Ride, RideParticipant, RideLocation,EmergencySOS,RideShareLink,ChatMessage
 
 
 
@@ -300,3 +300,12 @@ class PublicTrackingSerializer(serializers.Serializer):
     destination = serializers.DictField()
 
     driver_location = serializers.DictField()
+
+
+class ChatMessageSerializer(serializers.ModelSerializer):
+    sender_name = serializers.CharField(source='sender.full_name', read_only=True)
+
+    class Meta:
+        model = ChatMessage
+        fields = ['id', 'ride', 'sender', 'sender_name', 'message', 'timestamp']
+        read_only_fields = fields

@@ -12,7 +12,9 @@ from .views import (
     public_tracking_page,
     AcceptPoolRequestAPIView,
     DeclinePoolRequestAPIView,
-    TriggerSOSAlertView
+    TriggerSOSAlertView,
+    EmergencySOSResolveView,
+    EmergencySOSAudioUploadView
 )
 
 # 1. Initialize the automatic router for your ModelViewSet
@@ -37,6 +39,8 @@ urlpatterns = [
 
     # Matches the frontend's api.post(`/rides/pool/${rideId}/sos/`) call
     path("pool/<uuid:ride_id>/sos/", TriggerSOSAlertView.as_view(), name='trigger_sos'),
+    path("pool/sos/<uuid:sos_id>/resolve/", EmergencySOSResolveView.as_view(), name='resolve_sos'),
+    path("pool/sos/<uuid:sos_id>/audio/", EmergencySOSAudioUploadView.as_view(), name='sos_audio_upload'),
 
     path("track/<uuid:token>/",public_tracking_page,name="public_tracking_page"),
     path(

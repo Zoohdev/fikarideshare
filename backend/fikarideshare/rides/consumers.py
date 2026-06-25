@@ -5,7 +5,7 @@ from channels.db import database_sync_to_async
 from django.utils import timezone
 
 from users.models import User
-from .models import Ride, RideLocation
+from .models import Ride, RideLocation, SOSLocationPing
 from .services.location import DriverLocationService
 from geopy.distance import geodesic
 from django.db import models
@@ -810,6 +810,10 @@ class SOSTrackingConsumer(AsyncWebsocketConsumer):
         latitude = data.get('latitude')
         longitude = data.get('longitude')
 
+        # Persist the ping - previously only relayed live with no record
+        # left once the websocket connection closed.
+        await self._save_location_ping(latitude, longitude)
+
         # Broadcast the location data to listening third-party response teams or family links
         await self.channel_layer.group_send(
             self.safety_room_group,
@@ -818,6 +822,16 @@ class SOSTrackingConsumer(AsyncWebsocketConsumer):
                 'latitude': latitude,
                 'longitude': longitude,
             }
+        )
+
+    @database_sync_to_async
+    def _save_location_ping(self, latitude, longitude):
+        if latitude is None or longitude is None:
+            return
+        SOSLocationPing.objects.create(
+            sos_id=self.sos_id,
+            latitude=latitude,
+            longitude=longitude,
         )
 
     async def safety_location_update(self, event):
