@@ -24,6 +24,8 @@ urlpatterns = [
     path('api/rides/', include('rides.urls')),
     path('api/payments/', include('payments.urls')),
     path('api/ratings/', include('ratings.urls')),
+    path('api/support/', include('support.urls')),
+    path('api/notifications/', include('notifications.urls')),
 
     # Core System Fallback / Entry Index Base Point
     path('', api_root_landing, name='api_gateway_index'),

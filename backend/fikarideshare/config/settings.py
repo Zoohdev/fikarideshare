@@ -48,6 +48,8 @@ INSTALLED_APPS = [
     'payments.apps.PaymentsConfig',
     'ratings.apps.RatingsConfig',
     'kyc.apps.KycConfig',
+    'support.apps.SupportConfig',
+    'notifications.apps.NotificationsConfig',
 ]
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
