@@ -962,7 +962,7 @@ import {
   TouchableWithoutFeedback,
   TextInput,
   ActivityIndicator,
-  Alert // Added Alert import
+  Alert,
 } from "react-native";
 import React, { useState, useEffect, useRef } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -973,21 +973,58 @@ import {
   CommonStyles,
 } from "../../../constants/styles";
 import Ionicons from "react-native-vector-icons/Ionicons";
-import MaterialIcons from "react-native-vector-icons/MaterialIcons";
-import { WebView } from "react-native-webview";
-import { useLocalSearchParams, useNavigation } from "expo-router";
+import Svg, { Path, Circle } from "react-native-svg";
+import { LinearGradient } from "expo-linear-gradient";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import { useIsFocused } from "@react-navigation/native";
 import * as Location from 'expo-location';
 import socket from "../../../services/socketService";
 import MapView, { PROVIDER_GOOGLE, Marker } from 'react-native-maps';
 import MapViewDirections from 'react-native-maps-directions';
-import { useRouter } from "expo-router";
 import api from "../../../services/api";
 import { Key } from "../../../constants/key";
 import { MAP_THEME, LIVE_TRACKING_DELTA, ROUTE_LINE_COLOR } from "../../../constants/mapTheme";
 import { VEHICLE_TYPE_KEYS } from "../../../constants/vehicleTypes";
+import { API_HOST } from "../../../constants/apiConfig";
+import { useProfile } from "../../context/ProfileContext";
+
 const GOOGLE_MAPS_API_KEY = Key.apiKey;
 const customMapTheme = MAP_THEME;
+
+const getGreeting = () => {
+  const hour = new Date().getHours();
+  if (hour < 12) return "Good morning,";
+  if (hour < 18) return "Good afternoon,";
+  return "Good evening,";
+};
+
+const getInitials = (fullName) => {
+  if (!fullName) return "FK";
+  const parts = fullName.trim().split(/\s+/);
+  const initials = (parts[0]?.[0] || "") + (parts[1]?.[0] || "");
+  return initials.toUpperCase() || "FK";
+};
+
+// Teal pin + gold outline, matching the "FIKA Rider Home" claude.ai/design
+// prototype's pickup marker. No continuous pulse animation - react-native-maps
+// Marker children need tracksViewChanges=true to animate, which forces a
+// re-render of the marker bitmap every frame and tanks map performance.
+const PickupMarker = () => (
+  <Svg width={38} height={48} viewBox="0 0 40 50">
+    <Path
+      d="M20 49 C20 49 4 30 4 18 a16 16 0 0 1 32 0 C36 30 20 49 20 49 Z"
+      fill={Colors.primaryColor}
+    />
+    <Path
+      d="M20 49 C20 49 4 30 4 18 a16 16 0 0 1 32 0 C36 30 20 49 20 49 Z"
+      fill="none"
+      stroke={Colors.goldAccent}
+      strokeWidth={1.5}
+    />
+    <Circle cx={20} cy={18} r={6.5} fill={Colors.creamBackground} />
+  </Svg>
+);
 
 const MapSection = ({
   currentLocation,
@@ -1000,7 +1037,7 @@ const MapSection = ({
     return null;
   }
   return (
-    <View style={{ flex: 1 }}>
+    <View style={StyleSheet.absoluteFill}>
       <MapView
         ref={mapRef}
         provider={PROVIDER_GOOGLE}
@@ -1014,7 +1051,6 @@ const MapSection = ({
         }}
       >
         {/* PICKUP MARKER */}
-        
         <Marker
           coordinate={{
             latitude: currentLocation.latitude,
@@ -1022,23 +1058,8 @@ const MapSection = ({
           }}
           anchor={{ x: 0.5, y: 1 }}
         >
-          <View style={styles.simpleMarker}>
-            <Ionicons
-              name="person"
-              size={18}
-              color="white"
-            />
-          </View>
-          
-
+          <PickupMarker />
         </Marker>
-
-{/* <Marker
-  coordinate={currentLocation}
-  image={require("../../../assets/images/car-marker-transparent.png")}
-  anchor={{ x: 0.5, y: 0.8 }}
-  flat={true}
-/> */}
 
         {/* DESTINATION MARKER */}
         {destinationCoords && (
@@ -1085,7 +1106,9 @@ const MapSection = ({
 const HomeScreen = () => {
   const navigation = useNavigation();
   const isFocused = useIsFocused();
+  const insets = useSafeAreaInsets();
   const { addressFor, address } = useLocalSearchParams();
+  const { profileData, fetchProfileDetails } = useProfile();
 
   const [pickupAddress, setPickupAddress] = useState("Getting your location...");
   const [destinationAddress, setDestinationAddress] = useState("");
@@ -1105,6 +1128,19 @@ const HomeScreen = () => {
   const router = useRouter();
   const [destinationCoords, setDestinationCoords] = useState(null);
   const [selectedRideType, setSelectedRideType] = useState('standard');
+
+  const avatarUrl = profileData?.profile_photo
+    ? (profileData.profile_photo.startsWith("http")
+        ? profileData.profile_photo
+        : `http://${API_HOST}${profileData.profile_photo}`)
+    : null;
+  const firstName = profileData?.full_name?.split(" ")[0] || "there";
+
+  useEffect(() => {
+    if (isFocused) {
+      fetchProfileDetails();
+    }
+  }, [isFocused]);
 
   useEffect(() => {
     getCurrentLocation();
@@ -1135,7 +1171,7 @@ const HomeScreen = () => {
       }
     }
   }, [address, addressFor, isFocused]);
-  
+
   useEffect(() => {
     const timer = setTimeout(() => {
       setShowMap(true);
@@ -1157,17 +1193,17 @@ const HomeScreen = () => {
         console.log("Error reading riderId from storage:", err);
       }
     };
-  
+
     socket.on("connect", () => {
       console.log("✅ rider socket connected");
       registerRider();
     });
-  
+
     return () => {
       socket.off("connect");
     };
   }, []);
-  
+
   useEffect(() => {
     const riderId = Date.now().toString(); // replace with real user ID
     socket.emit("register-rider", { riderId });
@@ -1195,10 +1231,10 @@ const HomeScreen = () => {
       }
 
       let location = await Location.getCurrentPositionAsync({});
-      
+
       const { latitude, longitude } = location.coords;
       setCurrentLocation({ latitude, longitude });
-      
+
       let addressResponse = await Location.reverseGeocodeAsync({ latitude, longitude });
       if (addressResponse.length > 0) {
         const addr = addressResponse[0];
@@ -1238,11 +1274,11 @@ const HomeScreen = () => {
         `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(text)}&key=${GOOGLE_MAPS_API_KEY}`
       );
       const data = await response.json();
-      
+
       if (data.status !== "OK" && data.status !== "ZERO_RESULTS") {
         console.log("Places API Error:", data.status, data.error_message);
       }
-    
+
       if (isDestination) {
         setDestinationSearchResults(data.predictions || []);
       } else {
@@ -1274,7 +1310,7 @@ const HomeScreen = () => {
             latitude: location.lat,
             longitude: location.lng
           });
-          
+
           setDestinationModalVisible(false);
           setDestinationSearchText("");
           setDestinationSearchResults([]);
@@ -1303,7 +1339,7 @@ const HomeScreen = () => {
         >
           <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.3)" }}>
             <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
-              <View style={styles.modalContent}> 
+              <View style={styles.modalContent}>
                 <View style={styles.modalHeader}>
                   <Text style={styles.modalTitle}>Search Pickup Location</Text>
                   <TouchableOpacity onPress={() => setLocationModalVisible(false)}>
@@ -1395,391 +1431,236 @@ const HomeScreen = () => {
     ) : null;
   };
 
+  // Gold-gradient active segment when selected, muted/flat otherwise -
+  // matches the toggle treatment already established for CTAs across
+  // loginScreen/registerScreen/onboardingScreen.
+  const renderToggleSegment = (active, icon, label, onPress) => (
+    <TouchableOpacity activeOpacity={0.85} onPress={onPress} style={{ flex: 1 }}>
+      {active ? (
+        <LinearGradient colors={["#EFB155", "#E8A33D"]} style={styles.toggleSegmentActive}>
+          <Ionicons name={icon} size={20} color="#2A1F06" />
+          <Text style={styles.toggleTextActive}>{label}</Text>
+        </LinearGradient>
+      ) : (
+        <View style={styles.toggleSegmentInactive}>
+          <Ionicons name={icon} size={20} color={Colors.mutedTextColor} />
+          <Text style={styles.toggleTextInactive}>{label}</Text>
+        </View>
+      )}
+    </TouchableOpacity>
+  );
+
   const rideSelectionCard = () => {
-    return (
-      <View style={styles.rideCard}>
-        <View style={styles.rideTypeContainer}>
-          <TouchableOpacity
-            style={[
-              styles.rideTypeButton,
-              selectedTabIndex === 1 && styles.selectedRideType
-            ]}
-            // onPress={() => setselectedTabIndex(1)}
-            onPress={() => {
-              setselectedTabIndex(1);      // Updates UI styling
-              setSelectedRideType('standard'); // Updates backend data
-            }}
-          >
-            <Ionicons 
-              name="car-sport" 
-              size={24} 
-              color={selectedTabIndex === 1 ? Colors.whiteColor : Colors.grayColor} 
-            />
-            <Text style={[
-              styles.rideTypeText,
-              selectedTabIndex === 1 && styles.selectedRideTypeText
-            ]}>
-              Solo
-            </Text>
-          </TouchableOpacity>
+    const ctaDisabled = isProcessing || !destinationAddress || !pickupAddress || pickupAddress === "Getting your location..." || pickupAddress === "Unable to get location" || !destinationCoords;
 
-          <TouchableOpacity
-            style={[
-              styles.rideTypeButton,
-              selectedTabIndex === 2 && styles.selectedRideType
-            ]}
-            onPress={() => {
-              setselectedTabIndex(2);      // Updates UI styling
-              setSelectedRideType('shared');   // Updates backend data
-            }}
-          >
-            <Ionicons 
-              name="people" 
-              size={24} 
-              color={selectedTabIndex === 2 ? Colors.whiteColor : Colors.grayColor} 
-            />
-            <Text style={[
-              styles.rideTypeText,
-              selectedTabIndex === 2 && styles.selectedRideTypeText
-            ]}>
-              Sharing
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.locationRow}>
-          <View style={styles.locationDotContainer}>
-            <View style={[styles.locationDot, styles.greenDot]} />
-            <View style={styles.verticalLine} />
-            <View style={[styles.locationDot, styles.redDot]} />
-          </View>
-
-          <View style={styles.locationInputsContainer}>
-            <TouchableOpacity 
-              style={styles.locationInput}
-              onPress={() => setLocationModalVisible(true)}
-            >
-              <Text style={styles.locationLabel}>Current location</Text>
-              <Text style={styles.locationAddress} numberOfLines={1}>
-                {pickupAddress}
-              </Text>
-            </TouchableOpacity>
-
-            <View style={styles.separator} />
-
-            <TouchableOpacity 
-              style={styles.locationInput}
-              onPress={() => setDestinationModalVisible(true)}
-            >
-              <Text style={styles.locationLabel}>Where to?</Text>
-              <Text style={[styles.locationAddress, !destinationAddress && styles.destinationPlaceholder]} numberOfLines={1}>
-                {destinationAddress || "Enter destination"}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {selectedTabIndex === 2 && (
-          <View style={styles.chairsContainer}>
-            <Text style={styles.chairsLabel}>Number of chairs needed:</Text>
-            <View style={styles.chairsSelection}>
-              {[1, 2, 3].map((chairCount) => (
-                <TouchableOpacity
-                  key={chairCount}
-                  style={[
-                    styles.chairButton,
-                    numberOfChairs === chairCount && styles.selectedChairButton
-                  ]}
-                  onPress={() => handleChairSelection(chairCount)}
-                >
-                  <Ionicons 
-                    name="person" 
-                    size={20} 
-                    color={numberOfChairs === chairCount ? Colors.whiteColor : Colors.grayColor} 
-                  />
-                  <Text style={[
-                    styles.chairButtonText,
-                    numberOfChairs === chairCount && styles.selectedChairButtonText
-                  ]}>
-                    {chairCount}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-        )}
-        
-
-        {/* <TouchableOpacity
-          style={[
-            styles.confirmButton,
-            (!destinationAddress || !pickupAddress || pickupAddress === "Getting your location..." || pickupAddress === "Unable to get location" || !destinationCoords) && styles.disabledButton
-          ]}
-          disabled={!destinationAddress || !pickupAddress || pickupAddress === "Getting your location..." || pickupAddress === "Unable to get location" || !destinationCoords}
-          onPress={async () => {
-            if (pickupAddress && destinationAddress && pickupAddress !== "Getting your location..." && pickupAddress !== "Unable to get location" && destinationCoords) {
-              const locationData = currentLocation;
-              
-              console.log('Navigating with location:', locationData);
-              console.log('Latitude:', locationData.latitude);
-              console.log('Longitude:', locationData.longitude);
-              
-              // try {
-              //   // Fetch estimates for all vehicle types matching your Django choices ['economy', 'comfort', 'premium', 'xl']
-              //   const vehicleTypes = ['economy', 'comfort', 'premium', 'xl'];
-                
-              //   const estimatePromises = vehicleTypes.map(async (vType) => {
-              //     // 1. Using your configured api instance. The base url is automatically prepended.
-              //     // 2. Your request interceptor injects the Bearer Token automatically.
-              //     const response = await api.post('/rides/estimate/', {
-              //       pickup: {
-              //         latitude: locationData.latitude,
-              //         longitude: locationData.longitude,
-              //       },
-              //       dropoff: {
-              //         latitude: destinationCoords.latitude,
-              //         longitude: destinationCoords.longitude,
-              //       },
-              //       vehicle_type: vType,
-              //     });
-              
-              //     // Axios resolves the promise directly with the response schema when successful.
-              //     // Non-2xx status codes automatically throw errors, handling '!response.ok' for you.
-              //     return { type: vType, data: response.data };
-              //   });
-              
-              //   const estimatesResults = await Promise.all(estimatePromises);
-                
-              //   // Map outcomes into a readable map for availableRidesScreen
-              //   const fareEstimatesBreakdown = {};
-              //   estimatesResults.forEach(res => {
-              //     fareEstimatesBreakdown[res.type] = res.data;
-              //   });
-              
-              //   // Create navigation params object passing the live endpoints calculation
-              //   const navigationParams = {
-              //     rideType: selectedTabIndex === 1 ? "solo" : "sharing",
-              //     numberOfChairs: selectedTabIndex === 2 ? numberOfChairs : 1,
-              //     pickupAddress: pickupAddress,
-              //     destinationAddress: destinationAddress,
-              //     lat: locationData.latitude.toString(),
-              //     lng: locationData.longitude.toString(),
-              //     destLat: destinationCoords?.latitude?.toString(),
-              //     destLng: destinationCoords?.longitude?.toString(),
-              //     locationData: JSON.stringify(locationData),
-              //     fareEstimates: JSON.stringify(fareEstimatesBreakdown) // JSON format containing calculated breakdown
-              //   };
-                
-              //   console.log('Navigation params with live calculations:', navigationParams);
-              //   navigation.push("availableRides/availableRidesScreen", navigationParams);
-              // } catch (error) {
-              //   console.log("API estimation fetch failed:", error);
-              //   Alert.alert(
-              //     "Calculation Error", 
-              //     "Unable to compute fare estimates from your location. Please check server connections and try again."
-              //   );
-              // }
-              try {
-                // 1. Guard check: Make sure coordinates exist before making network requests
-                if (!locationData?.latitude || !destinationCoords?.latitude) {
-                  console.error("Missing pickup or dropoff coordinates.");
-                  return;
-                }
-              
-                const vehicleTypes = VEHICLE_TYPE_KEYS;
-                
-                const estimatePromises = vehicleTypes.map(async (vType) => {
-                  // Force coordinates to numeric floating values to satisfy Django's FloatField serializer
-                  const cleanPayload = {
-                    pickup: {
-                      latitude: parseFloat(locationData.latitude),
-                      longitude: parseFloat(locationData.longitude),
-                    },
-                    dropoff: {
-                      latitude: parseFloat(destinationCoords.latitude),
-                      longitude: parseFloat(destinationCoords.longitude),
-                    },
-                    vehicle_type: vType,
-                  };
-              
-                  // Replace '/rides/estimate/' with your exact route string if needed
-                  const response = await api.post('/rides/estimate/', cleanPayload);
-                  return { type: vType, data: response.data };
-                });
-              
-                const estimatesResults = await Promise.all(estimatePromises);
-                
-                const fareEstimatesBreakdown = {};
-                estimatesResults.forEach(res => {
-                  fareEstimatesBreakdown[res.type] = res.data;
-                });
-              
-                const navigationParams = {
-                  rideType: selectedTabIndex === 1 ? "solo" : "sharing",
-                  numberOfChairs: selectedTabIndex === 2 ? numberOfChairs : 1,
-                  pickupAddress: pickupAddress,
-                  destinationAddress: destinationAddress,
-                  lat: locationData.latitude.toString(),
-                  lng: locationData.longitude.toString(),
-                  destLat: destinationCoords?.latitude?.toString(),
-                  destLng: destinationCoords?.longitude?.toString(),
-                  locationData: JSON.stringify(locationData),
-                  fareEstimates: JSON.stringify(fareEstimatesBreakdown)
-                };
-                
-                console.log('Navigation params with live calculations:', navigationParams);
-                navigation.push("availableRides/availableRidesScreen", navigationParams);
-              
-              } catch (error) {
-                // If the server returns a 400 Bad Request, this will log the exact validation messages from Django
-                if (error.response) {
-                  console.error("Validation error details from Django:", error.response.status, error.response.data);
-                } else {
-                  console.error("Network error message:", error.message);
-                }
-              }
-            } else {
-              setpickAlert(true);
-              setTimeout(() => {
-                setpickAlert(false);
-              }, 2000);
-            }
-          }}
-        >
-          <Text style={styles.confirmButtonText}>
-            Confirm {selectedTabIndex === 1 ? "Solo" : "Sharing"}
-          </Text>
-        </TouchableOpacity> */}
-
-<TouchableOpacity
-  style={[
-    styles.confirmButton,
-    // Add isProcessing to the disabled condition
-    (isProcessing || !destinationAddress || !pickupAddress || pickupAddress === "Getting your location..." || pickupAddress === "Unable to get location" || !destinationCoords) && styles.disabledButton
-  ]}
-  disabled={isProcessing || !destinationAddress || !pickupAddress || pickupAddress === "Getting your location..." || pickupAddress === "Unable to get location" || !destinationCoords}
-  onPress={async () => {
-    console.log("DEBUG: Current location state:", currentLocation);
-    if (!currentLocation) {
-      Alert.alert("Error", "Location is still loading. Please wait.");
-      return;
-  }
-  const locationData = currentLocation;
-    console.log("DEBUG: locationData is:", locationData);
-    // Basic validation check
-    if (pickupAddress && destinationAddress && pickupAddress !== "Getting your location..." && pickupAddress !== "Unable to get location" && destinationCoords) {
-      
-      setIsProcessing(true); // 1. Start loading state
-
-      try {
-        if (!locationData?.latitude || !destinationCoords?.latitude) {
-           console.error("Missing pickup or dropoff coordinates.");
-           return;
-        }
-
-        const vehicleTypes = VEHICLE_TYPE_KEYS;
-        const estimatePromises = vehicleTypes.map(async (vType) => {
-          const cleanPayload = {
-            pickup: { latitude: parseFloat(locationData.latitude), longitude: parseFloat(locationData.longitude) },
-            dropoff: { latitude: parseFloat(destinationCoords.latitude), longitude: parseFloat(destinationCoords.longitude) },
-            vehicle_type: vType,
-          };
-          const response = await api.post('/rides/estimate/', cleanPayload);
-          return { type: vType, data: response.data };
-        });
-
-        const estimatesResults = await Promise.all(estimatePromises);
-        
-        const fareEstimatesBreakdown = {};
-        estimatesResults.forEach(res => { fareEstimatesBreakdown[res.type] = res.data; });
-
-        const navigationParams = {
-          // rideType: selectedTabIndex === 1 ? "solo" : "sharing",
-          numberOfChairs: selectedTabIndex === 2 ? numberOfChairs : 1,
-          pickupAddress: pickupAddress,
-          destinationAddress: destinationAddress,
-          lat: locationData.latitude.toString(),
-          lng: locationData.longitude.toString(),
-          destLat: destinationCoords?.latitude?.toString(),
-          destLng: destinationCoords?.longitude?.toString(),
-          locationData: JSON.stringify(locationData),
-          fareEstimates: JSON.stringify(fareEstimatesBreakdown),
-          ride_type: selectedRideType
-        };
-        
-        
-        router.push({
-          pathname: "availableRides/availableRidesScreen",
-          params: navigationParams
-      });
-
-      } catch (error) {
-        if (error.response) {
-          console.error("Validation error details from Django:", error.response.status, error.response.data);
-        } else {
-          console.error("Network error message:", error.message);
-        }
-        Alert.alert("Error", "Could not fetch ride estimates. Please try again.");
-        console.error("CRITICAL ERROR:", error);
-      } finally {
-        setIsProcessing(false); // 2. Stop loading state (this runs on success AND error)
+    const confirmRide = async () => {
+      console.log("DEBUG: Current location state:", currentLocation);
+      if (!currentLocation) {
+        Alert.alert("Error", "Location is still loading. Please wait.");
+        return;
       }
+      const locationData = currentLocation;
+      console.log("DEBUG: locationData is:", locationData);
+      if (pickupAddress && destinationAddress && pickupAddress !== "Getting your location..." && pickupAddress !== "Unable to get location" && destinationCoords) {
+        setIsProcessing(true);
 
-    } else {
-      setpickAlert(true);
-      setTimeout(() => setpickAlert(false), 2000);
-    }
-  }}
->
-  {/* UX Tip: Show an indicator inside the button when processing */}
-  {isProcessing ? (
-     <ActivityIndicator color="white" />
-  ) : (
-     <Text style={styles.confirmButtonText}>
-       Confirm {selectedTabIndex === 1 ? "Solo" : "Sharing"}
-     </Text>
-  )}
-</TouchableOpacity>
+        try {
+          if (!locationData?.latitude || !destinationCoords?.latitude) {
+            console.error("Missing pickup or dropoff coordinates.");
+            return;
+          }
 
+          const vehicleTypes = VEHICLE_TYPE_KEYS;
+          const estimatePromises = vehicleTypes.map(async (vType) => {
+            const cleanPayload = {
+              pickup: { latitude: parseFloat(locationData.latitude), longitude: parseFloat(locationData.longitude) },
+              dropoff: { latitude: parseFloat(destinationCoords.latitude), longitude: parseFloat(destinationCoords.longitude) },
+              vehicle_type: vType,
+            };
+            const response = await api.post('/rides/estimate/', cleanPayload);
+            return { type: vType, data: response.data };
+          });
+
+          const estimatesResults = await Promise.all(estimatePromises);
+
+          const fareEstimatesBreakdown = {};
+          estimatesResults.forEach(res => { fareEstimatesBreakdown[res.type] = res.data; });
+
+          const navigationParams = {
+            numberOfChairs: selectedTabIndex === 2 ? numberOfChairs : 1,
+            pickupAddress: pickupAddress,
+            destinationAddress: destinationAddress,
+            lat: locationData.latitude.toString(),
+            lng: locationData.longitude.toString(),
+            destLat: destinationCoords?.latitude?.toString(),
+            destLng: destinationCoords?.longitude?.toString(),
+            locationData: JSON.stringify(locationData),
+            fareEstimates: JSON.stringify(fareEstimatesBreakdown),
+            ride_type: selectedRideType
+          };
+
+          router.push({
+            pathname: "availableRides/availableRidesScreen",
+            params: navigationParams
+          });
+
+        } catch (error) {
+          if (error.response) {
+            console.error("Validation error details from Django:", error.response.status, error.response.data);
+          } else {
+            console.error("Network error message:", error.message);
+          }
+          Alert.alert("Error", "Could not fetch ride estimates. Please try again.");
+          console.error("CRITICAL ERROR:", error);
+        } finally {
+          setIsProcessing(false);
+        }
+      } else {
+        setpickAlert(true);
+        setTimeout(() => setpickAlert(false), 2000);
+      }
+    };
+
+    return (
+      <View style={[styles.sheet, { paddingBottom: insets.bottom }]}>
+        <View style={styles.sheetHandle} />
+        <View style={styles.sheetContent}>
+          <View style={styles.toggleRow}>
+            {renderToggleSegment(selectedTabIndex === 1, "car-sport", "Solo", () => {
+              setselectedTabIndex(1);
+              setSelectedRideType('standard');
+            })}
+            {renderToggleSegment(selectedTabIndex === 2, "people", "Sharing", () => {
+              setselectedTabIndex(2);
+              setSelectedRideType('shared');
+            })}
+          </View>
+
+          <View style={styles.locationCard}>
+            <TouchableOpacity style={styles.locationRow} onPress={() => setLocationModalVisible(true)}>
+              <View style={styles.locationDotContainer}>
+                <View style={[styles.locationDot, styles.greenDot]} />
+                <View style={styles.verticalLine} />
+              </View>
+              <View style={styles.locationInputsContainer}>
+                <Text style={styles.locationLabel}>Current location</Text>
+                <Text style={styles.locationAddress} numberOfLines={1}>
+                  {pickupAddress}
+                </Text>
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={[styles.locationRow, styles.locationRowLast]} onPress={() => setDestinationModalVisible(true)}>
+              <View style={styles.locationDotContainer}>
+                <View style={[styles.locationDot, styles.redDot, !!destinationAddress && styles.destDotActive]} />
+              </View>
+              <View style={styles.locationInputsContainer}>
+                <Text style={styles.locationLabel}>Destination</Text>
+                <Text style={[styles.locationAddress, !destinationAddress && styles.destinationPlaceholder]} numberOfLines={1}>
+                  {destinationAddress || "Where to?"}
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color={Colors.platinumGray} />
+            </TouchableOpacity>
+          </View>
+
+          {selectedTabIndex === 2 && (
+            <View style={styles.chairsContainer}>
+              <Text style={styles.chairsLabel}>Number of chairs needed:</Text>
+              <View style={styles.chairsSelection}>
+                {[1, 2, 3].map((chairCount) => (
+                  <TouchableOpacity
+                    key={chairCount}
+                    style={[
+                      styles.chairButton,
+                      numberOfChairs === chairCount && styles.selectedChairButton
+                    ]}
+                    onPress={() => handleChairSelection(chairCount)}
+                  >
+                    <Ionicons
+                      name="person"
+                      size={20}
+                      color={numberOfChairs === chairCount ? Colors.whiteColor : Colors.grayColor}
+                    />
+                    <Text style={[
+                      styles.chairButtonText,
+                      numberOfChairs === chairCount && styles.selectedChairButtonText
+                    ]}>
+                      {chairCount}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          )}
+
+          <TouchableOpacity activeOpacity={0.85} disabled={ctaDisabled} onPress={confirmRide}>
+            {ctaDisabled ? (
+              <View style={styles.ctaButtonDisabled}>
+                {isProcessing ? (
+                  <ActivityIndicator color={Colors.mutedTextColor} />
+                ) : (
+                  <Text style={styles.ctaTextDisabled}>
+                    Confirm {selectedTabIndex === 1 ? "Solo" : "Sharing"}
+                  </Text>
+                )}
+              </View>
+            ) : (
+              <LinearGradient colors={["#EFB155", "#E8A33D"]} style={styles.ctaButton}>
+                {isProcessing ? (
+                  <ActivityIndicator color="#2A1F06" />
+                ) : (
+                  <Text style={styles.ctaText}>
+                    Confirm {selectedTabIndex === 1 ? "Solo" : "Sharing"}
+                  </Text>
+                )}
+              </LinearGradient>
+            )}
+          </TouchableOpacity>
+        </View>
       </View>
     );
   };
 
+  // Floating frosted pills over the full-bleed map - greeting/avatar on the
+  // left (real name + photo from ProfileContext, not a hardcoded "John
+  // Doe"), menu button on the right. Matches the "FIKA Rider Home"
+  // claude.ai/design prototype's header treatment.
   const header = () => {
     return (
-      <View style={styles.header}>
-        <View style={styles.profileContainer}>
-          <Image
-            source={require("../../../assets/images/user/user1.jpeg")}
-            style={styles.profileImage}
-          />
-          <View style={styles.welcomeContainer}>
-            <Text style={styles.welcomeText}>Welcome back,</Text>
-            <Text style={styles.userName}>John Doe</Text>
+      <View style={[styles.greetingRow, { top: insets.top + 10 }]}>
+        <View style={styles.greetingPill}>
+          <View style={styles.avatarRing}>
+            {avatarUrl ? (
+              <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
+            ) : (
+              <LinearGradient colors={["#1B6B4A", "#0A2E24"]} style={styles.avatarGradient}>
+                <Text style={styles.avatarInitials}>{getInitials(profileData?.full_name)}</Text>
+              </LinearGradient>
+            )}
+          </View>
+          <View>
+            <Text style={styles.greetingLabel}>{getGreeting()}</Text>
+            <Text style={styles.greetingName} numberOfLines={1}>{firstName}</Text>
           </View>
         </View>
-        
-        <View style={styles.headerRight}>
-          <TouchableOpacity style={styles.menuButton}>
-            <Ionicons name="menu-outline" size={24} color={Colors.whiteColor} />
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity style={styles.menuButton}>
+          <Ionicons name="menu-outline" size={22} color={Colors.primaryColor} />
+        </TouchableOpacity>
       </View>
     );
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: Colors.bodyBackColor }}>
-      <View style={{ flex: 1 }}>
-        {header()}
-        <MapSection
-          currentLocation={currentLocation}
-          destinationCoords={destinationCoords}
-          showMap={showMap}
-          mapRef={mapRef}
-        />
-        {rideSelectionCard()}
-      </View>
+    <View style={{ flex: 1, backgroundColor: Colors.creamBackground }}>
+      <MapSection
+        currentLocation={currentLocation}
+        destinationCoords={destinationCoords}
+        showMap={showMap}
+        mapRef={mapRef}
+      />
+      {header()}
+      {rideSelectionCard()}
       {pickAddressMessage()}
       {pickupLocationModal()}
       {destinationLocationModal()}
@@ -1800,24 +1681,6 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
-  simpleMarker: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: '#22C55E',
-    borderWidth: 4,
-    borderColor: '#FF8811',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  destinationMarker: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: '#EF4444',
-    borderWidth: 3,
-    borderColor: '#FFFFFF',
-  },
   alertTextStyle: {
     ...Fonts.whiteColor14Medium,
     backgroundColor: Colors.blackColor,
@@ -1826,104 +1689,185 @@ const styles = StyleSheet.create({
     borderRadius: Sizes.fixPadding - 5.0,
     overflow: "hidden",
   },
-  header: {
-    backgroundColor: Colors.primaryColor,
+
+  // ── floating greeting bar ──
+  greetingRow: {
+    position: "absolute",
+    left: 16,
+    right: 16,
+    zIndex: 20,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: Sizes.fixPadding * 2.0,
-    paddingVertical: Sizes.fixPadding + 5.0,
-    paddingTop: Sizes.fixPadding * 3.0,
-    zIndex: 10,
   },
-  profileContainer: {
+  greetingPill: {
     flexDirection: "row",
     alignItems: "center",
+    gap: 11,
+    backgroundColor: "rgba(250,247,242,0.92)",
+    paddingVertical: 7,
+    paddingRight: 15,
+    paddingLeft: 7,
+    borderRadius: 30,
+    shadowColor: "#141E1A",
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 6,
   },
-  profileImage: {
-    width: 45.0,
-    height: 45.0,
-    borderRadius: 22.5,
-    borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.3)',
-  },
-  welcomeContainer: {
-    marginLeft: Sizes.fixPadding,
-  },
-  welcomeText: {
-    ...Fonts.whiteColor12Medium,
-    opacity: 0.8,
-  },
-  userName: {
-    ...Fonts.whiteColor18Bold,
-    marginTop: 2,
-  },
-  headerRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  menuButton: {
+  avatarRing: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    alignItems: 'center',
-    justifyContent: 'center',
+    borderWidth: 2.5,
+    borderColor: Colors.goldAccent,
+    overflow: "hidden",
   },
-  rideCard: {
-    position: "absolute",
-    left: Sizes.fixPadding,
-    right: Sizes.fixPadding,
-    bottom: Sizes.fixPadding * 2,
-    backgroundColor: Colors.whiteColor,
-    borderRadius: Sizes.fixPadding * 2,
-    borderWidth: 1,
-    borderColor: "rgba(212,175,55,0.18)",
+  avatarImage: {
+    width: "100%",
+    height: "100%",
+  },
+  avatarGradient: {
+    width: "100%",
+    height: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarInitials: {
+    color: Colors.creamBackground,
+    fontSize: 14,
+    fontWeight: "800",
+    fontFamily: "Montserrat_Bold",
+  },
+  greetingLabel: {
+    fontSize: 11,
+    color: Colors.mutedTextColor,
+    fontWeight: "600",
+    fontFamily: "Montserrat_Medium",
+  },
+  greetingName: {
+    fontSize: 15,
+    color: Colors.blackColor,
+    fontWeight: "700",
+    marginTop: 1,
+    fontFamily: "Montserrat_SemiBold",
+  },
+  menuButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "rgba(250,247,242,0.92)",
+    alignItems: "center",
+    justifyContent: "center",
     shadowColor: "#141E1A",
-    shadowOpacity: 0.12,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 10,
-    padding: Sizes.fixPadding * 1.5,
-    zIndex: 10,
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 6,
   },
-  rideTypeContainer: {
+
+  // ── bottom sheet ──
+  sheet: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(250,247,242,0.97)",
+    borderTopLeftRadius: Sizes.fixPadding * 2.8,
+    borderTopRightRadius: Sizes.fixPadding * 2.8,
+    borderTopWidth: 1,
+    borderColor: "rgba(255,255,255,0.55)",
+    shadowColor: "#141E1A",
+    shadowOpacity: 0.16,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: -8 },
+    elevation: 16,
+  },
+  sheetHandle: {
+    width: 40,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: "rgba(28,28,30,0.14)",
+    alignSelf: "center",
+    marginTop: 10,
+  },
+  sheetContent: {
+    padding: Sizes.fixPadding * 1.5,
+    paddingTop: Sizes.fixPadding * 1.4,
+  },
+  toggleRow: {
     flexDirection: "row",
-    backgroundColor: Colors.bodyBackColor,
-    borderRadius: Sizes.fixPadding,
-    padding: Sizes.fixPadding - 5,
+    backgroundColor: "rgba(28,28,30,0.07)",
+    borderRadius: Sizes.fixPadding * 1.5,
+    padding: 4,
+    gap: 4,
     marginBottom: Sizes.fixPadding * 1.5,
   },
-  rideTypeButton: {
-    flex: 1,
+  toggleSegmentActive: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    padding: Sizes.fixPadding,
-    borderRadius: Sizes.fixPadding - 2,
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: Sizes.fixPadding * 1.2,
+    shadowColor: Colors.secondaryColor,
+    shadowOpacity: 0.38,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
   },
-  selectedRideType: {
-    backgroundColor: Colors.secondaryColor,
+  toggleSegmentInactive: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: Sizes.fixPadding * 1.2,
   },
-  rideTypeText: {
-    ...Fonts.grayColor15SemiBold,
-    marginLeft: Sizes.fixPadding - 5,
+  toggleTextActive: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#2A1F06",
+    fontFamily: "Montserrat_SemiBold",
   },
-  selectedRideTypeText: {
-    ...Fonts.whiteColor15SemiBold,
+  toggleTextInactive: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: Colors.mutedTextColor,
+    fontFamily: "Montserrat_SemiBold",
+  },
+  locationCard: {
+    backgroundColor: Colors.whiteColor,
+    borderRadius: Sizes.fixPadding * 1.7,
+    borderWidth: 1,
+    borderColor: "rgba(212,175,55,0.15)",
+    shadowColor: "#141E1A",
+    shadowOpacity: 0.07,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
+    marginBottom: Sizes.fixPadding * 1.4,
+    overflow: "hidden",
   },
   locationRow: {
     flexDirection: "row",
-    marginBottom: Sizes.fixPadding * 1.5,
+    alignItems: "center",
+    gap: Sizes.fixPadding * 1.4,
+    paddingHorizontal: Sizes.fixPadding * 1.6,
+    paddingVertical: Sizes.fixPadding * 1.4,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(28,28,30,0.06)",
+  },
+  locationRowLast: {
+    borderBottomWidth: 0,
   },
   locationDotContainer: {
     alignItems: "center",
-    marginRight: Sizes.fixPadding,
-    width: 24,
+    width: 16,
   },
   locationDot: {
-    width: 12,
-    height: 12,
+    width: 11,
+    height: 11,
     borderRadius: 6,
   },
   greenDot: {
@@ -1932,52 +1876,70 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.4,
     shadowRadius: 4,
   },
-  // Destination marker is a gold square (not a red circle) - red is
-  // reserved for errors/SOS in the premium palette, gold pairs it
-  // visually with the dropoff map marker and "Confirm" CTA.
+  // Destination dot starts neutral gray and lights up gold once a
+  // destination is chosen - mirrors the "Confirm" CTA's own gold-when-ready
+  // treatment instead of being permanently colored.
   redDot: {
-    backgroundColor: Colors.secondaryColor,
+    backgroundColor: "rgba(28,28,30,0.18)",
     borderRadius: 3,
   },
+  destDotActive: {
+    backgroundColor: Colors.secondaryColor,
+  },
   verticalLine: {
-    width: 2,
-    height: 20,
-    backgroundColor: Colors.lightGrayColor,
-    marginVertical: 2,
+    width: 1.5,
+    flex: 1,
+    minHeight: 14,
+    backgroundColor: "rgba(28,28,30,0.14)",
+    marginTop: 3,
   },
   locationInputsContainer: {
     flex: 1,
   },
-  locationInput: {
-    paddingVertical: Sizes.fixPadding,
-  },
   locationLabel: {
-    ...Fonts.grayColor12Medium,
-    marginBottom: 2,
+    fontSize: 10.5,
+    fontWeight: "700",
+    letterSpacing: 0.6,
+    color: "#9A9082",
+    textTransform: "uppercase",
+    fontFamily: "Montserrat_SemiBold",
   },
   locationAddress: {
-    ...Fonts.blackColor16SemiBold,
+    ...Fonts.blackColor15SemiBold,
+    marginTop: 2,
   },
   destinationPlaceholder: {
-    color: Colors.grayColor,
+    color: "#B3AB9D",
   },
-  separator: {
-    height: 1,
-    backgroundColor: Colors.lightGrayColor,
-    marginVertical: Sizes.fixPadding - 5,
-  },
-  confirmButton: {
-    backgroundColor: Colors.secondaryColor,
-    borderRadius: Sizes.fixPadding,
-    padding: Sizes.fixPadding + 5,
+  ctaButton: {
+    paddingVertical: 17,
+    borderRadius: Sizes.fixPadding * 1.6,
     alignItems: "center",
+    shadowColor: Colors.secondaryColor,
+    shadowOpacity: 0.38,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 6,
   },
-  disabledButton: {
-    backgroundColor: Colors.lightGrayColor,
-    opacity: 0.5,
+  ctaButtonDisabled: {
+    paddingVertical: 17,
+    borderRadius: Sizes.fixPadding * 1.6,
+    alignItems: "center",
+    backgroundColor: "rgba(28,28,30,0.09)",
   },
-  confirmButtonText: {
-    ...Fonts.whiteColor18Bold,
+  ctaText: {
+    fontSize: 16,
+    fontWeight: "700",
+    letterSpacing: 0.3,
+    color: "#2A1F06",
+    fontFamily: "Montserrat_SemiBold",
+  },
+  ctaTextDisabled: {
+    fontSize: 16,
+    fontWeight: "700",
+    letterSpacing: 0.3,
+    color: Colors.mutedTextColor,
+    fontFamily: "Montserrat_SemiBold",
   },
   chairsContainer: {
     marginBottom: Sizes.fixPadding * 1.5,
@@ -2050,4 +2012,3 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 });
-

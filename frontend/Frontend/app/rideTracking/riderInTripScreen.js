@@ -149,6 +149,23 @@ export default function RiderInTripScreen() {
 
           if (msgType === 'ride_status' || data.status) {
             const status = parsedMessage.status || data.status;
+
+            // Shared rides: the ride-wide status only flips to 'completed'
+            // once EVERY rider is dropped off, so a solo-style check on
+            // `status === 'completed'` alone never fires for this specific
+            // rider when they're dropped off individually while others
+            // are still in the car. Mirrors rideTrackingScreen.js's
+            // handling of this same event.
+            if (data.event === 'individual_dropped_off' && String(data.user_id) === String(uid)) {
+              Alert.alert("Ride Complete", "You have arrived at your destination!");
+              wsRef.current?.close();
+              router.replace({
+                pathname: '/feedback/feedbackScreen',
+                params: { rideId, fare: data.final_fare || rideData?.estimated_fare }
+              });
+              return;
+            }
+
             if (status === 'completed') {
               Alert.alert("Ride Complete", "You have arrived at your destination!");
               wsRef.current?.close();

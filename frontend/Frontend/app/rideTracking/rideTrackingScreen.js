@@ -16,6 +16,7 @@ import { MAP_THEME, LIVE_TRACKING_DELTA, ROUTE_LINE_COLOR, ROUTE_GLOW_COLOR, ROU
 import { WS_TRACKING_URL } from '../../constants/apiConfig';
 import AnimatedDriverMarker from './components/AnimatedDriverMarker';
 import { useSOSEmergency } from '../../hooks/useSOSEmergency';
+import { Colors } from '../../constants/styles';
 
 
 
@@ -798,6 +799,22 @@ async () => {
 };
 
 
+  // Single source of truth for "which number is this rider" - used by both
+  // the map markers (renderMap, below) and the passenger-queue list
+  // further down, so a rider's pickup pin, dropoff pin, and queue card all
+  // show the same number. Primary rider is always 1; pool participants are
+  // numbered in the same order compute_optimized_route (backend) and
+  // allRiders (below) already iterate rideData.participants in.
+  const getRiderNumber = (userId) => {
+    if (!rideData) return null;
+    if (String(rideData.rider?.id) === String(userId)) return 1;
+    const acceptedParticipants = (rideData.participants || []).filter(
+      (p) => p.status === 'accepted' || p.status === 'picked_up'
+    );
+    const index = acceptedParticipants.findIndex((p) => String(p.user.id) === String(userId));
+    return index === -1 ? null : index + 2;
+  };
+
   // ========================================================
   // MAP RENDERING LAYER (MODIFIED FOR EXACT RIDER ROUTING)
   // ========================================================
@@ -894,33 +911,37 @@ async () => {
           const lat = parseFloat(wp.latitude);
           const lng = parseFloat(wp.longitude);
           if (isNaN(lat) || isNaN(lng)) return null;
+          // Numbered per rider (not per stop) so a rider's pickup AND
+          // dropoff pin share one number - matches the same number shown
+          // on their passenger-queue card below.
+          const riderNumber = getRiderNumber(wp.user_id);
 
           return (
-            <Marker 
+            <Marker
             // ref={driverMarkerRef}
-              key={`wp-${index}`} 
-              coordinate={{ latitude: lat, longitude: lng }} 
+              key={`wp-${index}`}
+              coordinate={{ latitude: lat, longitude: lng }}
               anchor={{ x: 0.5, y: 0.9 }}
             >
               <View style={{ alignItems: 'center', justifyContent: 'center' }}>
                 <View style={{
-                  backgroundColor: '#0F172A', paddingHorizontal: 10, paddingVertical: 5,
-                  borderRadius: 8, borderWidth: 1, borderColor: '#334155',
+                  backgroundColor: Colors.primaryColor, paddingHorizontal: 10, paddingVertical: 5,
+                  borderRadius: 8, borderWidth: 1, borderColor: 'rgba(212,175,55,0.4)',
                   shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 3,
                   elevation: 5, marginBottom: 4, maxWidth: 140
                 }}>
                   <Text numberOfLines={1} style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '700', textAlign: 'center' }}>
-                    {wp.user_name || (isPickup ? "Rider Pickup" : "Drop Location")}
+                    {`Rider ${riderNumber ?? ''} ${isPickup ? 'Pickup' : 'Dropoff'}`}
                   </Text>
                 </View>
                 <View style={{
-                  width: 26, height: 26, borderRadius: 13,
-                  backgroundColor: isPickup ? '#22C55E' : '#EF4444', 
+                  width: 28, height: 28, borderRadius: 14,
+                  backgroundColor: isPickup ? Colors.successGreen : Colors.secondaryColor,
                   borderWidth: 3, borderColor: '#FFFFFF',
                   alignItems: 'center', justifyContent: 'center',
                   shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 4, elevation: 6
                 }}>
-                  <Ionicons name={isPickup ? "person" : "flag"} size={12} color="#FFFFFF" />
+                  <Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '800' }}>{riderNumber ?? '?'}</Text>
                 </View>
                 <View style={{
                   width: 0, height: 0, backgroundColor: 'transparent', borderStyle: 'solid',
@@ -1290,7 +1311,7 @@ console.log("Driver:", driverLocation);
                <Text style={styles.sheetSubtitle}>{allRiders.length} active riders</Text>
             </View>
             <View style={styles.queueBadge}>
-              <Ionicons name="people" size={16} color="#FF8811" />
+              <Ionicons name="people" size={16} color={Colors.secondaryColor} />
               <Text style={styles.queueBadgeText}>{allRiders.length}</Text>
             </View>
           </View>
@@ -1300,15 +1321,19 @@ console.log("Driver:", driverLocation);
             keyExtractor={(item) => item.id.toString()}
             showsVerticalScrollIndicator={true} // Enabled Scroll indicator
             contentContainerStyle={{ paddingBottom: 30 }}
-            renderItem={({ item }) => {
+            renderItem={({ item, index }) => {
               const isWaitingForPickup = ['driver_assigned', 'driver_arriving', 'arrived', 'accepted'].includes(item.status);
               const isInTransit = ['in_progress', 'picked_up'].includes(item.status);
+              const statusColor = isWaitingForPickup ? Colors.secondaryColor : Colors.successGreen;
 
               return (
                 <View style={styles.premiumRiderCard}>
-                  <View style={[styles.cardAccentLine, { backgroundColor: isWaitingForPickup ? '#FF8811' : '#10b981' }]} />
+                  <View style={[styles.cardAccentLine, { backgroundColor: statusColor }]} />
                   <View style={styles.cardHeader}>
                     <View style={styles.riderIdentity}>
+                      <View style={styles.queueNumberBadge}>
+                        <Text style={styles.queueNumberText}>{getRiderNumber(item.id) ?? index + 1}</Text>
+                      </View>
                       <View style={styles.avatarMini}>
                          <Text style={styles.avatarMiniText}>{item.name.charAt(0).toUpperCase()}</Text>
                       </View>
@@ -1319,7 +1344,7 @@ console.log("Driver:", driverLocation);
                          </View>
                       </View>
                     </View>
-                    
+
                     <TouchableOpacity
  style={styles.cardChatBtn}
  onPress={async () => {
@@ -1347,7 +1372,7 @@ console.log("Driver:", driverLocation);
  <Ionicons
    name="chatbubble-ellipses"
    size={20}
-   color="#FF8811"
+   color={Colors.secondaryColor}
  />
 
  {driverUnread[item.id] && (
@@ -1370,15 +1395,22 @@ console.log("Driver:", driverLocation);
 
                   <View style={styles.tripDetailsZone}>
                     <View style={styles.detailRow}>
-                      <Ionicons name="location" size={14} color="#64748b" style={styles.detailIcon} />
+                      <View style={[styles.detailDot, { backgroundColor: Colors.successGreen }]} />
                       <Text style={styles.detailText} numberOfLines={1}>
-                        <Text style={{fontWeight: 'bold', color: '#334155'}}>Drop: </Text>
+                        <Text style={{fontWeight: 'bold', color: Colors.blackColor}}>Pickup: </Text>
+                        {item.pickup || "Pickup unavailable"}
+                      </Text>
+                    </View>
+                    <View style={styles.detailRow}>
+                      <View style={[styles.detailDot, { backgroundColor: Colors.secondaryColor, borderRadius: 3 }]} />
+                      <Text style={styles.detailText} numberOfLines={1}>
+                        <Text style={{fontWeight: 'bold', color: Colors.blackColor}}>Drop: </Text>
                         {item.dropoff || "Destination hidden"}
                       </Text>
                     </View>
                     <View style={styles.statusRow}>
                        <Text style={styles.statusLabel}>Live Status:</Text>
-                       <Text style={[styles.statusValue, { color: isWaitingForPickup ? '#FF8811' : '#10b981' }]}>
+                       <Text style={[styles.statusValue, { color: statusColor }]}>
                          {item.status.replace('_', ' ').toUpperCase()}
                        </Text>
                     </View>
@@ -1801,26 +1833,29 @@ const styles = StyleSheet.create({
   cardAccentLine: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 5 },
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, paddingLeft: 20, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
   riderIdentity: { flexDirection: 'row', alignItems: 'center', flex: 1 },
-  avatarMini: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#FF8811', justifyContent: 'center', alignItems: 'center', marginRight: 12, shadowColor: '#FF8811', shadowOpacity: 0.3, shadowOffset: {width: 0, height: 3}, elevation: 4 },
+  queueNumberBadge: { width: 22, height: 22, borderRadius: 11, backgroundColor: Colors.goldAccent, justifyContent: 'center', alignItems: 'center', marginRight: 8 },
+  queueNumberText: { fontSize: 12, fontWeight: '800', color: Colors.primaryColor },
+  avatarMini: { width: 44, height: 44, borderRadius: 22, backgroundColor: Colors.primaryColor, justifyContent: 'center', alignItems: 'center', marginRight: 12, shadowColor: Colors.primaryColor, shadowOpacity: 0.3, shadowOffset: {width: 0, height: 3}, elevation: 4 },
   avatarMiniText: { fontSize: 18, fontWeight: 'bold', color: '#fff' },
   riderName: { fontSize: 17, fontWeight: '700', color: '#1e293b' },
   roleTag: { backgroundColor: '#f1f5f9', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, alignSelf: 'flex-start', marginTop: 4 },
   roleTagText: { fontSize: 11, fontWeight: '600', color: '#64748b', textTransform: 'uppercase' },
-  cardChatBtn: { backgroundColor: '#fff7ed', width: 46, height: 46, borderRadius: 23, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#fed7aa' },
+  cardChatBtn: { backgroundColor: 'rgba(212,175,55,0.08)', width: 46, height: 46, borderRadius: 23, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: 'rgba(212,175,55,0.35)' },
   tripDetailsZone: { paddingHorizontal: 20, paddingVertical: 14, backgroundColor: '#fdfdfd' },
   detailRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+  detailDot: { width: 8, height: 8, borderRadius: 4, marginRight: 10 },
   detailIcon: { marginRight: 8, marginTop: 2 },
   detailText: { fontSize: 13, color: '#475569', flex: 1 },
   statusRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f8fafc', padding: 10, borderRadius: 10 },
   statusLabel: { fontSize: 12, fontWeight: '600', color: '#64748b' },
   statusValue: { fontSize: 12, fontWeight: '800', letterSpacing: 0.5 },
   actionZone: { padding: 16, paddingLeft: 20, borderTopWidth: 1, borderColor: '#f1f5f9', backgroundColor: '#fff' },
-  actionPrompt: { fontSize: 13, fontWeight: '700', color: '#FF8811', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 },
+  actionPrompt: { fontSize: 13, fontWeight: '700', color: Colors.secondaryColor, marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 },
   otpActionRow: { flexDirection: 'row', gap: 12 },
   modernOtpInput: { flex: 1, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 12, paddingHorizontal: 16, fontSize: 22, letterSpacing: 8, fontWeight: '800', textAlign: 'center', color: '#0f172a' },
-  btnVerifyOrange: { backgroundColor: '#FF8811', flexDirection: 'row', paddingVertical: 14, paddingHorizontal: 24, borderRadius: 12, justifyContent: 'center', alignItems: 'center', shadowColor: '#FF8811', shadowOpacity: 0.3, shadowOffset: {width: 0, height: 4}, elevation: 4 },
+  btnVerifyOrange: { backgroundColor: Colors.secondaryColor, flexDirection: 'row', paddingVertical: 14, paddingHorizontal: 24, borderRadius: 12, justifyContent: 'center', alignItems: 'center', shadowColor: Colors.secondaryColor, shadowOpacity: 0.3, shadowOffset: {width: 0, height: 4}, elevation: 4 },
   btnText: { color: '#fff', fontWeight: 'bold', fontSize: 15 },
-  btnDropoff: { backgroundColor: '#0f172a', flexDirection: 'row', paddingVertical: 16, borderRadius: 14, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOpacity: 0.2, shadowOffset: {width: 0, height: 4}, elevation: 4 },
+  btnDropoff: { backgroundColor: Colors.primaryColor, flexDirection: 'row', paddingVertical: 16, borderRadius: 14, alignItems: 'center', justifyContent: 'center', shadowColor: Colors.primaryColor, shadowOpacity: 0.3, shadowOffset: {width: 0, height: 4}, elevation: 4 },
   btnDropoffText: { color: '#fff', fontWeight: 'bold', fontSize: 16, letterSpacing: 0.5 },
   fourBoxContainer: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 15 },
   otpBoxSingle: { width: 60, height: 60, backgroundColor: '#f1f5f9', borderRadius: 12, borderWidth: 2, borderColor: '#cbd5e1', fontSize: 28, fontWeight: '900', textAlign: 'center', color: '#0f172a' },

@@ -140,6 +140,32 @@ class RideViewSet(viewsets.ModelViewSet):
                         )
 
                     if not lost_race:
+                        # Reverse-geocode + estimate this participant's own
+                        # fare share before creating the row - previously
+                        # neither was computed, so pickup_address/
+                        # dropoff_address saved as empty strings and the
+                        # driver's pool-join request card had no fare to
+                        # show at all.
+                        joiner_pickup_address = service.maps.reverse_geocode(
+                            data['pickup']['latitude'], data['pickup']['longitude']
+                        )
+                        joiner_dropoff_address = service.maps.reverse_geocode(
+                            data['dropoff']['latitude'], data['dropoff']['longitude']
+                        )
+
+                        joiner_fare = None
+                        joiner_directions = service.maps.get_directions(
+                            origin=(data['pickup']['latitude'], data['pickup']['longitude']),
+                            destination=(data['dropoff']['latitude'], data['dropoff']['longitude']),
+                        )
+                        if joiner_directions:
+                            joiner_fare = service.pricing.calculate_fare(
+                                distance_meters=joiner_directions['distance_meters'],
+                                duration_seconds=joiner_directions['duration_in_traffic_seconds'],
+                                vehicle_type=pool.vehicle_type_requested,
+                                is_shared=True,
+                            )['total']
+
                         # PENDING, not ACCEPTED - the seat is reserved
                         # immediately (so no one else can grab it while the
                         # driver decides), but this rider doesn't count as
@@ -150,9 +176,12 @@ class RideViewSet(viewsets.ModelViewSet):
                             ride=pool,
                             user=request.user,
                             pickup_location=pickup,
+                            pickup_address=joiner_pickup_address or '',
                             dropoff_location=dropoff,
+                            dropoff_address=joiner_dropoff_address or '',
                             status=RideParticipant.Status.PENDING,
                             seats_reserved=required_seats,
+                            estimated_fare_contribution=joiner_fare,
                         )
 
                         pool.available_seats -= required_seats
@@ -175,6 +204,7 @@ class RideViewSet(viewsets.ModelViewSet):
                                 "pickup_address": participant.pickup_address,
                                 "dropoff_address": participant.dropoff_address,
                                 "seats": required_seats,
+                                "fare": float(joiner_fare) if joiner_fare is not None else None,
                             }
                         )
 
