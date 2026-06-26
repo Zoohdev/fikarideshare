@@ -6,7 +6,7 @@
 // Set EXPO_PUBLIC_API_HOST in your .env to your machine's LAN IP (the one
 // `python manage.py runserver 0.0.0.0:8000` is reachable on from your
 // phone/emulator) - see .env.example.
-export const API_HOST = process.env.EXPO_PUBLIC_API_HOST || '192.168.0.112:8000';
+export const API_HOST = process.env.EXPO_PUBLIC_API_HOST || '192.168.0.108:8000';
 
 export const API_BASE_URL = `http://${API_HOST}/api`;
 export const WS_BASE_URL = `ws://${API_HOST}`;

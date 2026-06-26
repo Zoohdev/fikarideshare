@@ -951,52 +951,107 @@
 // });
 
 //home
-import {
-  StyleSheet,
-  Text,
-  View,
-  Image,
-  TouchableOpacity,
-  ScrollView,
-  Modal,
-  TouchableWithoutFeedback,
-  TextInput,
-  ActivityIndicator,
-  Alert // Added Alert import
-} from "react-native";
-import React, { useState, useEffect, useRef } from "react";
-import {
-  Colors,
-  Sizes,
-  Fonts,
-  CommonStyles,
-} from "../../../constants/styles";
-import Ionicons from "react-native-vector-icons/Ionicons";
-import MaterialIcons from "react-native-vector-icons/MaterialIcons";
-import { WebView } from "react-native-webview";
-import { useLocalSearchParams, useNavigation } from "expo-router";
 import { useIsFocused } from "@react-navigation/native";
 import * as Location from 'expo-location';
-import socket from "../../../services/socketService";
-import MapView, { PROVIDER_GOOGLE, Marker } from 'react-native-maps';
+import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
+import React, { useEffect, useRef, useState } from "react";
+import {
+  ActivityIndicator,
+  Alert, // Added Alert import
+  Image,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  TouchableWithoutFeedback,
+  View
+} from "react-native";
+import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import MapViewDirections from 'react-native-maps-directions';
-import { useRouter } from "expo-router";
-import api from "../../../services/api";
+import Ionicons from "react-native-vector-icons/Ionicons";
 import { Key } from "../../../constants/key";
-import { MAP_THEME, LIVE_TRACKING_DELTA, ROUTE_LINE_COLOR } from "../../../constants/mapTheme";
+import { LIVE_TRACKING_DELTA, MAP_THEME } from "../../../constants/mapTheme";
+import {
+  Colors,
+  CommonStyles,
+  Fonts,
+  Sizes,
+} from "../../../constants/styles";
+import api from "../../../services/api";
+import socket from "../../../services/socketService";
 const GOOGLE_MAPS_API_KEY = Key.apiKey;
 const customMapTheme = MAP_THEME;
 
+// Add this below your imports
+const calculateBearing = (startLat, startLng, endLat, endLng) => {
+  const fromLat = (startLat * Math.PI) / 180;
+  const fromLng = (startLng * Math.PI) / 180;
+  const toLat = (endLat * Math.PI) / 180;
+  const toLng = (endLng * Math.PI) / 180;
+
+  const dLng = toLng - fromLng;
+
+  const y = Math.sin(dLng) * Math.cos(toLat);
+  const x = Math.cos(fromLat) * Math.sin(toLat) -
+            Math.sin(fromLat) * Math.cos(toLat) * Math.cos(dLng);
+
+  let bearing = Math.atan2(y, x);
+  bearing = (bearing * 180) / Math.PI;
+  return (bearing + 360) % 360;
+};
+
+
+function generateRandomDriverLocation(baseCoords, index) {
+  // Rough approximation: 1 degree latitude ~= 111,000 meters
+  const metersPerDegree = 111000;
+  
+  // Set a range between 300 meters and 1200 meters away from pickup point
+  const minDistance = 300;
+  const maxDistance = 1200;
+  const randomDistance = Math.random() * (maxDistance - minDistance) + minDistance;
+  
+  // Distribute headings evenly or randomly across 360 degrees
+  const angle = (index * 75 + Math.random() * 45) % 360;
+  const angleInRadians = (angle * Math.PI) / 180;
+
+  const deltaLat = (randomDistance * Math.cos(angleInRadians)) / metersPerDegree;
+  // Account for longitude shrinkage depending on distance from the equator
+  const deltaLng = (randomDistance * Math.sin(angleInRadians)) / (metersPerDegree * Math.cos((baseCoords.latitude * Math.PI) / 180));
+
+  return {
+    id: `mock_nearby_car_${index}_${Date.now()}`,
+    latitude: baseCoords.latitude + deltaLat,
+    longitude: baseCoords.longitude + deltaLng,
+    heading: (angle + 180) % 360, // Set the car pointing back roughly towards or around the center
+  };
+}
+
+const MAP_ZOOM_DELTA = 0.007;
 const MapSection = ({
   currentLocation,
   destinationCoords,
   showMap,
   mapRef,
+  heading,
+  nearbyCars = []
 }) => {
 
+  useEffect(() => {
+    if (showMap && currentLocation && !destinationCoords && mapRef.current) {
+      mapRef.current.animateToRegion({
+        latitude: currentLocation.latitude,
+        longitude: currentLocation.longitude,
+        latitudeDelta: MAP_ZOOM_DELTA,
+        longitudeDelta: MAP_ZOOM_DELTA,
+      }, 1000); // 1-second smooth panning animation
+    }
+  }, [currentLocation, destinationCoords, showMap]);
   if (!showMap || !currentLocation) {
     return null;
   }
+  const scale = 0.8;
   return (
     <View style={{ flex: 1 }}>
       <MapView
@@ -1004,6 +1059,7 @@ const MapSection = ({
         provider={PROVIDER_GOOGLE}
         style={styles.Map}
         customMapStyle={customMapTheme}
+        // mapId="683bbaed124217965ad088fb"
         initialRegion={{
           latitude: currentLocation.latitude,
           longitude: currentLocation.longitude,
@@ -1013,7 +1069,45 @@ const MapSection = ({
       >
         {/* PICKUP MARKER */}
         
+        {/* UPDATED PICKUP MARKER (Vehicle) */}
         <Marker
+          coordinate={{
+            latitude: currentLocation.latitude,
+            longitude: currentLocation.longitude,
+          }}
+          // anchor={{ x: 0.5, y: 0.5 }} // Center anchor is best for rotation
+          flat={true} // Keeps the marker flat on the map for realistic rotation
+          rotation={heading} // Rotates the marker based on movement direction
+          anchor={{ x: 0.5, y: 1 }}
+        >
+          {/* Replace this path with your actual car asset path */}
+          <Image 
+            source={require("../../../assets/images/car.png")} 
+            style={{ width: 42, height: 42, resizeMode: 'contain' }}
+          />
+         
+        </Marker>
+        
+        {/* RANDOM SURROUNDING VEHICLES */}
+        {nearbyCars.map((car) => (
+          <Marker
+            key={car.id}
+            coordinate={{
+              latitude: car.latitude,
+              longitude: car.longitude,
+            }}
+            flat={true}
+            rotation={car.heading}
+            anchor={{ x: 0.5, y: 0.5 }} // Center anchor is critical for clean car asset rotations
+          >
+            <Image 
+              source={require("../../../assets/images/car.png")} 
+              style={{ width: 40, height: 40, resizeMode: 'contain' }}
+            />
+          </Marker>
+        ))}
+
+        {/* <Marker
           coordinate={{
             latitude: currentLocation.latitude,
             longitude: currentLocation.longitude,
@@ -1029,7 +1123,7 @@ const MapSection = ({
           </View>
           
 
-        </Marker>
+        </Marker> */}
 
 {/* <Marker
   coordinate={currentLocation}
@@ -1055,7 +1149,7 @@ const MapSection = ({
             destination={destinationCoords}
             apikey={GOOGLE_MAPS_API_KEY}
             strokeWidth={5}
-            strokeColor={ROUTE_LINE_COLOR}
+            strokeColor='#1A202C'
             onReady={(result) => {
               mapRef.current.fitToCoordinates(
                 result.coordinates,
@@ -1080,6 +1174,253 @@ const MapSection = ({
   );
 };
 
+// const MAP_ZOOM_DELTA = 0.007;
+
+// const MapSection = ({
+//   currentLocation,
+//   destinationCoords,
+//   showMap,
+//   mapRef,
+//   heading,
+//   nearbyCars = []
+// }) => {
+//   useEffect(() => {
+//     if (showMap && currentLocation && !destinationCoords && mapRef.current) {
+//       mapRef.current.animateToRegion({
+//         latitude: currentLocation.latitude,
+//         longitude: currentLocation.longitude,
+//         latitudeDelta: MAP_ZOOM_DELTA,
+//         longitudeDelta: MAP_ZOOM_DELTA,
+//       }, 1000); // 1-second smooth panning animation
+//     }
+//   }, [currentLocation, destinationCoords, showMap]);
+
+
+
+//   if (!showMap || !currentLocation) {
+//     return null;
+//   }
+
+//   return (
+//     <View style={{ flex: 1, overflow: 'hidden' }}>
+//       <MapView
+//         ref={mapRef}
+//         provider={PROVIDER_GOOGLE}
+//         style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+//         customMapStyle={customMapTheme}
+//         initialRegion={{
+//           latitude: currentLocation.latitude,
+//           longitude: currentLocation.longitude,
+//           latitudeDelta: MAP_ZOOM_DELTA,
+//           longitudeDelta: MAP_ZOOM_DELTA,
+//         }}
+//       >
+//         {/* MAIN ACTIVE VEHICLE MARKER */}
+//         <Marker
+//           coordinate={{
+//             latitude: currentLocation.latitude,
+//             longitude: currentLocation.longitude,
+//           }}
+//           flat={true} // Keeps the asset parallel to the earth map grid plane
+//           rotation={heading || 0} 
+//           anchor={{ x: 0.5, y: 0.5 }} // Pivot rotation around absolute center of mass
+//         >
+//           <Image 
+//             source={require("../../../assets/images/car.png")} 
+//             style={{ width: 38, height: 38, resizeMode: 'contain' }}
+//           />
+//         </Marker>
+        
+//         {/* AMBIENT SURROUNDING FLEET VEHICLES */}
+//         {nearbyCars.map((car) => (
+//           <Marker
+//             key={car.id}
+//             coordinate={{
+//               latitude: car.latitude,
+//               longitude: car.longitude,
+//             }}
+//             flat={true}
+//             rotation={car.heading || 0}
+//             anchor={{ x: 0.5, y: 0.5 }} // Rotates flawlessly on its center axis
+//           >
+//             <Image 
+//               source={require("../../../assets/images/car.png")} 
+//               style={{ width: 34, height: 34, resizeMode: 'contain', opacity: 0.85 }}
+//             />
+//           </Marker>
+//         ))}
+
+//         {/* DESTINATION MARKER */}
+//         {destinationCoords && (
+//           <Marker
+//             coordinate={destinationCoords}
+//             anchor={{ x: 0.5, y: 0.5 }}
+//           >
+//             <Image 
+//               source={require("../../../assets/images/destination.png")}
+//               style={{ width: 32, height: 32, resizeMode: 'contain' }}
+//             />
+//           </Marker>
+//         )}
+
+//         {/* MODERNIZED ROUTE POLYLINE */}
+//         {destinationCoords && (
+//           <MapViewDirections
+//             origin={currentLocation}
+//             destination={destinationCoords}
+//             apikey={GOOGLE_MAPS_API_KEY}
+//             strokeWidth={4} // Slightly thinner line for a more premium look
+//             strokeColor="#1A202C" // Dark slate charcoal line matching sleek light/minimal themes
+//             lineDashPattern={[0]} // Solid uniform line stream
+//             onReady={(result) => {
+//               mapRef.current.fitToCoordinates(
+//                 result.coordinates,
+//                 {
+//                   edgePadding: {
+//                     top: 80,
+//                     right: 60,
+//                     bottom: 320, // Generous breathing space padding for the bottom UI sheet
+//                     left: 60,
+//                   },
+//                   animated: true,
+//                 }
+//               );
+//             }}
+//             onError={(error) => {
+//               console.log("Directions Engine Error: ", error);
+//             }}
+//           />
+//         )}
+//       </MapView>
+//     </View>
+//   );
+// };
+
+
+// const CLOSE_ZOOM_DELTA = 0.005; 
+
+// const MapSection = ({
+//   currentLocation,
+//   destinationCoords,
+//   showMap,
+//   mapRef,
+//   heading,
+//   nearbyCars = []
+// }) => {
+
+//   // Automatically zoom and focus closely on current/pickup position if no route is active
+//   useEffect(() => {
+//     if (showMap && currentLocation && !destinationCoords && mapRef.current) {
+//       mapRef.current.animateToRegion({
+//         latitude: currentLocation.latitude,
+//         longitude: currentLocation.longitude,
+//         latitudeDelta: CLOSE_ZOOM_DELTA,
+//         longitudeDelta: CLOSE_ZOOM_DELTA,
+//       }, 1000); // 1-second smooth panning animation
+//     }
+//   }, [currentLocation, destinationCoords, showMap]);
+
+//   if (!showMap || !currentLocation) {
+//     return null;
+//   }
+
+//   return (
+//     <View style={{ flex: 1, overflow: 'hidden' }}>
+//       <MapView
+//         ref={mapRef}
+//         provider={PROVIDER_GOOGLE}
+//         style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+//         customMapStyle={customMapTheme}
+//         initialRegion={{
+//           latitude: currentLocation.latitude,
+//           longitude: currentLocation.longitude,
+//           latitudeDelta: CLOSE_ZOOM_DELTA,
+//           longitudeDelta: CLOSE_ZOOM_DELTA,
+//         }}
+//       >
+//         {/* MAIN USER/PICKUP VEHICLE MARKER */}
+//         <Marker
+//           coordinate={{
+//             latitude: currentLocation.latitude,
+//             longitude: currentLocation.longitude,
+//           }}
+//           flat={true} // Keeps asset parallel to the earth map grid plane
+//           rotation={heading || 0} 
+//           anchor={{ x: 0.5, y: 0.5 }} // Pivot rotation around absolute center of mass
+//         >
+//           <Image 
+//             source={require("../../../assets/images/car.png")} 
+//             style={{ width: 38, height: 38, resizeMode: 'contain' }}
+//           />
+//         </Marker>
+        
+//         {/* AMBIENT SURROUNDING FLEET VEHICLES (Only visible when destinationCoords exist) */}
+//         {destinationCoords && nearbyCars.map((car) => (
+//           <Marker
+//             key={car.id}
+//             coordinate={{
+//               latitude: car.latitude,
+//               longitude: car.longitude,
+//             }}
+//             flat={true}
+//             rotation={car.heading || 0}
+//             anchor={{ x: 0.5, y: 0.5 }}
+//           >
+//             <Image 
+//               source={require("../../../assets/images/car.png")} 
+//               style={{ width: 34, height: 34, resizeMode: 'contain', opacity: 0.85 }}
+//             />
+//           </Marker>
+//         ))}
+
+//         {/* DESTINATION MARKER */}
+//         {destinationCoords && (
+//           <Marker
+//             coordinate={destinationCoords}
+//             anchor={{ x: 0.5, y: 0.5 }}
+//           >
+//             <Image 
+//               source={require("../../../assets/images/destination.png")}
+//               style={{ width: 32, height: 32, resizeMode: 'contain' }}
+//             />
+//           </Marker>
+//         )}
+
+//         {/* MODERNIZED ROUTE POLYLINE */}
+//         {destinationCoords && (
+//           <MapViewDirections
+//             origin={currentLocation}
+//             destination={destinationCoords}
+//             apikey={GOOGLE_MAPS_API_KEY}
+//             strokeWidth={4} // Slightly thinner line for a more premium look
+//             strokeColor="#1A202C" // Dark slate charcoal line matching sleek light/minimal themes
+//             lineDashPattern={[0]} // Solid uniform line stream
+//             onReady={(result) => {
+//               if (mapRef.current) {
+//                 mapRef.current.fitToCoordinates(
+//                   result.coordinates,
+//                   {
+//                     edgePadding: {
+//                       top: 80,
+//                       right: 60,
+//                       bottom: 320, // Increased bottom safety padding to prevent UI sheet overlap
+//                       left: 60,
+//                     },
+//                     animated: true,
+//                   }
+//                 );
+//               }
+//             }}
+//             onError={(error) => {
+//               console.log("Directions Engine Error: ", error);
+//             }}
+//           />
+//         )}
+//       </MapView>
+//     </View>
+//   );
+// };
+
 const HomeScreen = () => {
   const navigation = useNavigation();
   const isFocused = useIsFocused();
@@ -1103,10 +1444,25 @@ const HomeScreen = () => {
   const router = useRouter();
   const [destinationCoords, setDestinationCoords] = useState(null);
   const [selectedRideType, setSelectedRideType] = useState('standard');
+  const [previousLocation, setPreviousLocation] = useState(null);
+  const [heading, setHeading] = useState(0);
 
   useEffect(() => {
     getCurrentLocation();
   }, []);
+
+  const [nearbyCars, setNearbyCars] = useState([]);
+
+useEffect(() => {
+  if (currentLocation?.latitude && currentLocation?.longitude) {
+    // Generate a pool of 5 random vehicles distributed around the new location
+    const generatedCars = Array.from({ length: 5 }).map((_, index) => 
+      generateRandomDriverLocation(currentLocation, index)
+    );
+    setNearbyCars(generatedCars);
+  }
+}, [currentLocation]);
+
 
   useEffect(() => {
     if (currentLocation && mapRef.current) {
@@ -1171,6 +1527,31 @@ const HomeScreen = () => {
     socket.emit("register-rider", { riderId });
     console.log("📡 Registered rider:", riderId);
   }, []);
+
+  // Add this useEffect near your other useEffects
+  useEffect(() => {
+    if (previousLocation && currentLocation) {
+      const newHeading = calculateBearing(
+        previousLocation.latitude,
+        previousLocation.longitude,
+        currentLocation.latitude,
+        currentLocation.longitude
+      );
+      
+      // Only update heading if the vehicle actually moved
+      if (
+        previousLocation.latitude !== currentLocation.latitude || 
+        previousLocation.longitude !== currentLocation.longitude
+      ) {
+        setHeading(newHeading);
+      }
+    }
+    // Save current location as previous for the next calculation
+    setPreviousLocation(currentLocation);
+  }, [currentLocation]);
+
+  
+  // UTILITY: Generates a random coordinate around a base location within a specific radius (in meters)
 
   const showAddressAlert = (type, address) => {
     Alert.alert(
@@ -1775,6 +2156,8 @@ const HomeScreen = () => {
           destinationCoords={destinationCoords}
           showMap={showMap}
           mapRef={mapRef}
+          heading={heading}
+          nearbyCars={nearbyCars}
         />
         {rideSelectionCard()}
       </View>

@@ -1,19 +1,18 @@
 
 
-import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, FlatList, Alert, Linking, SafeAreaView, Image,ScrollView, Modal,Share } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Audio } from 'expo-av';
+import * as Location from 'expo-location';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useEffect, useRef, useState } from 'react';
+import { Alert, FlatList, Linking, Modal, SafeAreaView, ScrollView, Share, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
 import MapViewDirections from 'react-native-maps-directions';
-import * as Location from 'expo-location';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import Ionicons from '@expo/vector-icons/Ionicons';
-import MaterialIcons from '@expo/vector-icons/MaterialIcons'; 
-import { Audio } from 'expo-av';
-import api from '../../services/api';
+import { WS_SOS_BASE_URL, WS_TRACKING_URL } from '../../constants/apiConfig';
 import { Key } from '../../constants/key';
-import { MAP_THEME, LIVE_TRACKING_DELTA, ROUTE_LINE_COLOR } from '../../constants/mapTheme';
-import { WS_TRACKING_URL, WS_SOS_BASE_URL } from '../../constants/apiConfig';
+import { LIVE_TRACKING_DELTA, MAP_THEME, ROUTE_LINE_COLOR } from '../../constants/mapTheme';
+import api from '../../services/api';
 import AnimatedDriverMarker from './components/AnimatedDriverMarker';
 
 
@@ -947,7 +946,8 @@ async () => {
       <MapView 
         ref={mapRef} 
         style={styles.webview}
-        customMapStyle={customMapTheme}
+        // customMapStyle={customMapTheme}
+        mapId="683bbaed124217965ad088fb"
         initialRegion={{
           latitude: initialLat,
           longitude: initialLng,

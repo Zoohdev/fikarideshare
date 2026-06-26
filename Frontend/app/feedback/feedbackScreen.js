@@ -1,16 +1,16 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import {
-  View,
-  Text,
-  StyleSheet,
-  SafeAreaView,
-  TouchableOpacity,
-  TextInput,
   Alert,
+  SafeAreaView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 
-import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { router, useLocalSearchParams } from "expo-router";
 import api from "../../services/api";
 
 export default function FeedbackScreen() {
@@ -75,7 +75,7 @@ export default function FeedbackScreen() {
         "Your feedback has been submitted."
       );
 
-      router.replace("/(tabs)/home");
+      router.replace("/(tabs)/homeScreen");
     } catch (error) {
       console.error("Error submitting feedback:", error);
       Alert.alert(
