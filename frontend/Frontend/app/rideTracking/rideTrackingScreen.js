@@ -1,10 +1,12 @@
 
 
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, FlatList, Alert, Linking, Image,ScrollView, Modal,Share } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, FlatList, Alert, Linking, Image,ScrollView, Modal,Share, Animated } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import MapViewDirections from 'react-native-maps-directions';
+import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -12,7 +14,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import api from '../../services/api';
 import { Key } from '../../constants/key';
-import { MAP_THEME, LIVE_TRACKING_DELTA, ROUTE_LINE_COLOR, ROUTE_GLOW_COLOR, ROUTE_HIGHLIGHT_COLOR } from '../../constants/mapTheme';
+import { MAP_THEME, LIVE_TRACKING_DELTA, ROUTE_LINE_COLOR, ROUTE_GLOW_COLOR, ROUTE_HIGHLIGHT_COLOR, GOOGLE_MAP_ID } from '../../constants/mapTheme';
 import { WS_TRACKING_URL } from '../../constants/apiConfig';
 import AnimatedDriverMarker from './components/AnimatedDriverMarker';
 import { useSOSEmergency } from '../../hooks/useSOSEmergency';
@@ -49,6 +51,9 @@ export default function ActiverideScreen() {
   const [routeCoords, setRouteCoords] = useState([]);
   const [driverLocation, setDriverLocation] = useState(null);
   const [otpInputs, setOtpInputs] = useState({});
+  const [pinErrors, setPinErrors] = useState({});
+  const otpCellRefs = useRef({});
+  const shakeAnims = useRef({});
   const [messages, setMessages] = useState([]);
   const [rideDetails, setRideDetails] = useState(null);
   const [verificationCode, setVerificationCode] = useState(null);
@@ -192,15 +197,12 @@ const [poolRequest,
         "FULL RIDE DATA",
         JSON.stringify(res.data, null, 2)
       );
-      const currentUserId = await AsyncStorage.getItem('userId');
-      if (String(res.data.rider.id) === String(currentUserId)) {
-        setVerificationCode(res.data.verification_code);
-      } else {
-        const myParticipantData = res.data.participants?.find(p => String(p.user.id) === String(currentUserId));
-        if (myParticipantData) {
-          setVerificationCode(myParticipantData.pickup_code);
-        }
-      }
+      // my_pickup_code resolves to *this* viewer's own code server-side -
+      // res.data.verification_code is always the organizer's code, which
+      // is wrong for a pool-joiner reading their own ride (the
+      // participants list also never exposed pickup_code, so the old
+      // fallback below never actually worked for them either).
+      setVerificationCode(res.data.my_pickup_code);
       
 
       if (res.data?.driver_location?.latitude && res.data?.driver_location?.longitude) {
@@ -403,10 +405,12 @@ const locLng =
             }
 
             setRideDetails(data);
-            if (data.verification_code) {
-              setVerificationCode(data.verification_code);
-            }
-    
+            // Not reading data.verification_code here - this websocket
+            // broadcast goes to the whole ride group, so it's always the
+            // organizer's code, wrong for a pool-joiner. verificationCode
+            // is already set correctly (per-viewer) via fetchRideDetails's
+            // my_pickup_code on mount.
+
             // FIXED DROP-OFF CHECK (Navigates Rider Properly)
             if (data.event === 'individual_dropped_off' && String(data.user_id) === String(uid)) {
               wsRef.current?.close();
@@ -572,9 +576,41 @@ setDriverLocation({
     );
   };
 
+  // One shared Animated.Value per rider (keyed by id) so each passenger-queue
+  // card's PIN cells can shake independently without re-mounting the row.
+  const getShakeAnim = (id) => {
+    if (!shakeAnims.current[id]) shakeAnims.current[id] = new Animated.Value(0);
+    return shakeAnims.current[id];
+  };
+
+  const triggerShake = (id) => {
+    const anim = getShakeAnim(id);
+    Animated.sequence([
+      Animated.timing(anim, { toValue: 8, duration: 50, useNativeDriver: true }),
+      Animated.timing(anim, { toValue: -8, duration: 50, useNativeDriver: true }),
+      Animated.timing(anim, { toValue: 6, duration: 50, useNativeDriver: true }),
+      Animated.timing(anim, { toValue: -6, duration: 50, useNativeDriver: true }),
+      Animated.timing(anim, { toValue: 0, duration: 50, useNativeDriver: true }),
+    ]).start();
+  };
+
+  const initialsOf = (name) => (name ? name.charAt(0).toUpperCase() : '?');
+
+  const renderPinCells = (value = '') => {
+    return [0, 1, 2, 3].map((i) => {
+      const ch = value[i] || '';
+      const filled = !!ch;
+      return (
+        <View key={i} style={[styles.pinCell, filled && styles.pinCellFilled]}>
+          <Text style={styles.pinDigitText}>{ch}</Text>
+        </View>
+      );
+    });
+  };
+
   const verifyRiderOtp = async (participantId, isPrimary) => {
     try {
-    
+
 
 
       const code = otpInputs[participantId];
@@ -583,28 +619,40 @@ setDriverLocation({
       console.log("RIDE ID:", rideId);
       const response=await api.post(`/rides/verify-code/`, { ride_id: rideId, code: code });
       console.log(response.data);
+      setPinErrors((prev) => ({ ...prev, [participantId]: false }));
       Alert.alert("Success", "Code Verified! Rider is now onboard.");
       fetchRideDetails();
-      
+
     } catch (e) {
 
-      console.error("Verification function crashed with error:", e); 
+      console.error("Verification function crashed with error:", e);
+      setPinErrors((prev) => ({ ...prev, [participantId]: true }));
+      triggerShake(participantId);
       Alert.alert("Error", "Invalid PIN provided.");
     }
   };
 
   const dropOffRider = async (targetUserId) => {
+    const code = otpInputs[targetUserId];
+    if (!code) return Alert.alert("Notice", "Please enter the rider's drop-off PIN.");
     try {
-      const res = await api.post(`/rides/trips/${rideId}/dropoff_user/`, { user_id: targetUserId });
+      const res = await api.post(`/rides/trips/${rideId}/dropoff_user/`, { user_id: targetUserId, code });
+      setPinErrors((prev) => ({ ...prev, [targetUserId]: false }));
       Alert.alert("Dropped Off", `Fare to collect: R${res.data.fare}`);
-      
+
       if (res.data.status === 'ride_fully_completed') {
-        router.replace('/(driverTabs)/home/homeScreen'); 
+        router.replace('/(driverTabs)/home/homeScreen');
       } else {
         fetchRideDetails();
       }
     } catch (e) {
-      Alert.alert("Error", "Could not complete drop off.");
+      setPinErrors((prev) => ({ ...prev, [targetUserId]: true }));
+      triggerShake(targetUserId);
+      if (e.response?.status === 400) {
+        Alert.alert("Error", e.response?.data?.error || "Invalid drop-off PIN.");
+      } else {
+        Alert.alert("Error", "Could not complete drop off.");
+      }
     }
   };
 
@@ -860,9 +908,10 @@ async () => {
     const initialLng = safeDriverLng || safePickupLng || 77.7129;
 
     return (
-      <MapView 
-        ref={mapRef} 
+      <MapView
+        ref={mapRef}
         style={styles.webview}
+        mapId={GOOGLE_MAP_ID}
         customMapStyle={customMapTheme}
         initialRegion={{
           latitude: initialLat,
@@ -1302,189 +1351,202 @@ console.log("Driver:", driverLocation);
           {renderMap()}
         </View>
 
-        {/* Scrollable Driver Bottom Sheet */}
+        {/* Scrollable Driver Bottom Sheet - Passenger Queue (matches the
+            FIKA Driver Queue hi-fi prototype: frosted sheet, numbered/
+            avatar rider header, PIN-cell entry, in-transit drop-off CTA) */}
         <View style={styles.driverBottomSheet}>
-          <View style={styles.dragHandle} />
-          <View style={styles.sheetHeaderRow}>
-            <View>
-               <Text style={styles.sheetTitle}>Passenger Queue</Text>
-               <Text style={styles.sheetSubtitle}>{allRiders.length} active riders</Text>
+          <BlurView intensity={60} tint="light" style={StyleSheet.absoluteFill} />
+          <View style={styles.sheetTint} />
+          <View style={{ flex: 1 }}>
+            <View style={styles.dragHandleV2} />
+            <View style={styles.sheetHeaderRowV2}>
+              <View>
+                <Text style={styles.sheetTitleV2}>Passenger Queue</Text>
+                <Text style={styles.sheetSubtitleV2}>
+                  {allRiders.length} active rider{allRiders.length === 1 ? '' : 's'}
+                </Text>
+              </View>
+              <View style={styles.queueBadgeV2}>
+                <Ionicons name="people" size={16} color="#8A6D1C" />
+                <Text style={styles.queueBadgeTextV2}>{allRiders.length}</Text>
+              </View>
             </View>
-            <View style={styles.queueBadge}>
-              <Ionicons name="people" size={16} color={Colors.secondaryColor} />
-              <Text style={styles.queueBadgeText}>{allRiders.length}</Text>
-            </View>
-          </View>
 
-          <FlatList
-            data={allRiders}
-            keyExtractor={(item) => item.id.toString()}
-            showsVerticalScrollIndicator={true} // Enabled Scroll indicator
-            contentContainerStyle={{ paddingBottom: 30 }}
-            renderItem={({ item, index }) => {
-              const isWaitingForPickup = ['driver_assigned', 'driver_arriving', 'arrived', 'accepted'].includes(item.status);
-              const isInTransit = ['in_progress', 'picked_up'].includes(item.status);
-              const statusColor = isWaitingForPickup ? Colors.secondaryColor : Colors.successGreen;
+            <FlatList
+              data={allRiders}
+              keyExtractor={(item) => item.id.toString()}
+              showsVerticalScrollIndicator={true}
+              style={{ flex: 1 }}
+              contentContainerStyle={{ paddingBottom: 30, paddingHorizontal: 20 }}
+              renderItem={({ item, index }) => {
+                const isWaitingForPickup = ['driver_assigned', 'driver_arriving', 'arrived', 'accepted'].includes(item.status);
+                const isInTransit = ['in_progress', 'picked_up'].includes(item.status);
+                const riderNumber = getRiderNumber(item.id) ?? index + 1;
+                const pinValue = otpInputs[item.id] || '';
+                const hasPinError = !!pinErrors[item.id];
 
-              return (
-                <View style={styles.premiumRiderCard}>
-                  <View style={[styles.cardAccentLine, { backgroundColor: statusColor }]} />
-                  <View style={styles.cardHeader}>
-                    <View style={styles.riderIdentity}>
-                      <View style={styles.queueNumberBadge}>
-                        <Text style={styles.queueNumberText}>{getRiderNumber(item.id) ?? index + 1}</Text>
-                      </View>
-                      <View style={styles.avatarMini}>
-                         <Text style={styles.avatarMiniText}>{item.name.charAt(0).toUpperCase()}</Text>
-                      </View>
-                      <View>
-                         <Text style={styles.riderName}>{item.name}</Text>
-                         <View style={styles.roleTag}>
-                           <Text style={styles.roleTagText}>{item.isPrimary ? "Primary Trip" : "Pool Rider"}</Text>
-                         </View>
-                      </View>
-                    </View>
-
-                    <TouchableOpacity
- style={styles.cardChatBtn}
- onPress={async () => {
-
-   setDriverUnread(prev => ({
-     ...prev,
-     [item.id]: false
-   }));
-
-   await AsyncStorage.removeItem(
-     `chat_unread_${rideId}_${item.id}`
-   );
-
-   router.push({
-     pathname:
-       "/Chat/chatScreen",
-     params: {
-       trip_id: rideId,
-       role: "driver",
-       target_user_id: item.id
-     }
-   });
- }}
->
- <Ionicons
-   name="chatbubble-ellipses"
-   size={20}
-   color={Colors.secondaryColor}
- />
-
- {driverUnread[item.id] && (
-   <View
-     style={{
-       position: "absolute",
-       top: 2,
-       right: 2,
-       width: 12,
-       height: 12,
-       borderRadius: 6,
-       backgroundColor: "#22C55E",
-       borderWidth: 2,
-       borderColor: "#fff",
-     }}
-   />
- )}
-</TouchableOpacity>
-                  </View>
-
-                  <View style={styles.tripDetailsZone}>
-                    <View style={styles.detailRow}>
-                      <View style={[styles.detailDot, { backgroundColor: Colors.successGreen }]} />
-                      <Text style={styles.detailText} numberOfLines={1}>
-                        <Text style={{fontWeight: 'bold', color: Colors.blackColor}}>Pickup: </Text>
-                        {item.pickup || "Pickup unavailable"}
-                      </Text>
-                    </View>
-                    <View style={styles.detailRow}>
-                      <View style={[styles.detailDot, { backgroundColor: Colors.secondaryColor, borderRadius: 3 }]} />
-                      <Text style={styles.detailText} numberOfLines={1}>
-                        <Text style={{fontWeight: 'bold', color: Colors.blackColor}}>Drop: </Text>
-                        {item.dropoff || "Destination hidden"}
-                      </Text>
-                    </View>
-                    <View style={styles.statusRow}>
-                       <Text style={styles.statusLabel}>Live Status:</Text>
-                       <Text style={[styles.statusValue, { color: statusColor }]}>
-                         {item.status.replace('_', ' ').toUpperCase()}
-                       </Text>
-                    </View>
-                  </View>
-                  
-                  {isWaitingForPickup && (
-                    <View style={styles.actionZone}>
-                      <Text style={styles.actionPrompt}>Enter 4-Digit PIN from Rider</Text>
-                      <View style={styles.otpActionRow}>
-                        <TextInput 
-                          style={styles.modernOtpInput} placeholder="• • • •" placeholderTextColor="#cbd5e1"
-                          keyboardType="number-pad" maxLength={4}
-                          onChangeText={(val) => setOtpInputs({...otpInputs, [item.id]: val})}
+                return (
+                  <View style={styles.riderCardV2}>
+                    <View style={styles.riderHeaderRowV2}>
+                      <View style={styles.numberColumnV2}>
+                        <View style={styles.numberPillV2}>
+                          <Text style={styles.numberPillTextV2}>{riderNumber}</Text>
+                        </View>
+                        <LinearGradient
+                          colors={['#0A2E24', 'rgba(10,46,36,0)']}
+                          style={styles.numberLineV2}
                         />
-                        <TouchableOpacity style={styles.btnVerifyOrange} onPress={() => verifyRiderOtp(item.id, item.isPrimary)}>
-                          <Ionicons name="shield-checkmark" size={18} color="#fff" style={{marginRight: 6}} />
-                          <Text style={styles.btnText}>Verify</Text>
-                        </TouchableOpacity>
-                        {/* <TouchableOpacity
-  style={styles.btnVerifyOrange}
-  onPress={() => {
-
-    const enteredOtp =
-      otpInputs[item.id];
-
-    if (
-      enteredOtp !== "1122"
-    ) {
-      Alert.alert(
-        "Invalid PIN",
-        "Use 1122 for testing"
-      );
-      return;
-    }
-
-    console.log(
-      "TEMP OTP VERIFIED"
-    );
-
-    router.replace({
-      pathname:
-        "/rideTracking/riderInTripScreen",
-
-      params: {
-        rideId,
-
-        role: "rider",
-
-        pickupLat,
-        pickupLng,
-
-        dropoffLat,
-        dropoffLng,
-      },
-    });
-
-  }}
-></TouchableOpacity> */}
                       </View>
-                    </View>
-                  )}
 
-                  {isInTransit && (
-                    <View style={styles.actionZone}>
-                      <TouchableOpacity style={styles.btnDropoff} onPress={() => dropOffRider(item.id)}>
-                        <Ionicons name="flag" size={20} color="#fff" style={{marginRight: 8}}/>
-                        <Text style={styles.btnDropoffText}>Complete Drop Off</Text>
+                      <LinearGradient
+                        colors={['#1B6B4A', '#0A2E24']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={styles.avatarV2}
+                      >
+                        <Text style={styles.avatarTextV2}>{initialsOf(item.name)}</Text>
+                      </LinearGradient>
+
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.riderNameV2}>{item.name}</Text>
+                        <View style={styles.roleBadgeV2}>
+                          <Text style={styles.roleBadgeTextV2}>
+                            {item.isPrimary ? "Primary trip" : "Pool rider"}
+                          </Text>
+                        </View>
+                      </View>
+
+                      <TouchableOpacity
+                        style={styles.chatBtnV2}
+                        onPress={async () => {
+                          setDriverUnread(prev => ({ ...prev, [item.id]: false }));
+                          await AsyncStorage.removeItem(`chat_unread_${rideId}_${item.id}`);
+                          router.push({
+                            pathname: "/Chat/chatScreen",
+                            params: { trip_id: rideId, role: "driver", target_user_id: item.id }
+                          });
+                        }}
+                      >
+                        <Ionicons name="chatbubble-outline" size={18} color={Colors.primaryColor} />
+                        {driverUnread[item.id] && <View style={styles.chatUnreadDotV2} />}
                       </TouchableOpacity>
                     </View>
-                  )}
-                </View>
-              );
-            }}
-          />
+
+                    <View style={styles.dividerV2} />
+
+                    <View style={styles.tripDetailsV2}>
+                      <View style={styles.detailRowV2}>
+                        <View style={styles.pickupDotV2} />
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.detailLabelV2}>Pickup</Text>
+                          <Text style={styles.detailAddressV2} numberOfLines={1}>
+                            {item.pickup || "Pickup unavailable"}
+                          </Text>
+                        </View>
+                      </View>
+                      <View style={[styles.detailRowV2, { marginBottom: 13 }]}>
+                        <View style={styles.dropoffDotV2} />
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.detailLabelV2}>Drop-off</Text>
+                          <Text style={styles.detailAddressV2} numberOfLines={1}>
+                            {item.dropoff || "Destination hidden"}
+                          </Text>
+                        </View>
+                      </View>
+
+                      <View
+                        style={[
+                          styles.statusRowV2,
+                          { backgroundColor: isInTransit ? 'rgba(91,201,160,0.1)' : 'rgba(232,163,61,0.1)' }
+                        ]}
+                      >
+                        <View style={styles.statusRowLeftV2}>
+                          <View style={[styles.statusDotV2, { backgroundColor: isInTransit ? '#5BC9A0' : '#E8A33D' }]} />
+                          <Text style={styles.statusLabelV2}>Live status</Text>
+                        </View>
+                        <Text style={[styles.statusValueV2, { color: isInTransit ? '#1B8C5A' : '#C99A2E' }]}>
+                          {item.status.replace(/_/g, ' ').toUpperCase()}
+                        </Text>
+                      </View>
+                    </View>
+
+                    {isWaitingForPickup && (
+                      <View style={styles.actionZoneV2}>
+                        <Text style={styles.pinLabelV2}>Enter 4-digit PIN from rider</Text>
+                        <View style={styles.pinCellsWrapV2}>
+                          <Animated.View style={[styles.pinCellsRowV2, { transform: [{ translateX: getShakeAnim(item.id) }] }]}>
+                            {renderPinCells(pinValue)}
+                          </Animated.View>
+                          <TextInput
+                            ref={(ref) => { otpCellRefs.current[item.id] = ref; }}
+                            value={pinValue}
+                            onChangeText={(val) => {
+                              setOtpInputs({ ...otpInputs, [item.id]: val.replace(/\D/g, '').slice(0, 4) });
+                              setPinErrors((prev) => ({ ...prev, [item.id]: false }));
+                            }}
+                            keyboardType="number-pad"
+                            maxLength={4}
+                            style={styles.hiddenPinInputV2}
+                          />
+                        </View>
+                        {hasPinError && (
+                          <Text style={styles.pinErrorTextV2}>Incorrect PIN — ask rider to check their app</Text>
+                        )}
+                        <TouchableOpacity onPress={() => verifyRiderOtp(item.id, item.isPrimary)} activeOpacity={0.9}>
+                          <LinearGradient colors={['#EFB155', '#E8A33D']} style={styles.verifyCtaV2}>
+                            <Ionicons name="shield-checkmark" size={19} color="#2A1F06" />
+                            <Text style={styles.verifyCtaTextV2}>Verify PIN &amp; start trip</Text>
+                          </LinearGradient>
+                        </TouchableOpacity>
+                      </View>
+                    )}
+
+                    {isInTransit && (
+                      <View style={styles.actionZoneV2}>
+                        <View style={styles.transitCardV2}>
+                          <View style={styles.transitLeftV2}>
+                            <Ionicons name="checkmark-circle-outline" size={20} color="#5BC9A0" />
+                            <Text style={styles.transitTextV2}>Rider on board · In transit</Text>
+                          </View>
+                          <View style={styles.transitEtaRowV2}>
+                            <Text style={styles.transitEtaNumV2}>{etaMinutes ?? '--'}</Text>
+                            <Text style={styles.transitEtaUnitV2}>min</Text>
+                          </View>
+                        </View>
+
+                        <Text style={styles.pinLabelV2}>Enter 4-digit drop-off PIN from rider</Text>
+                        <View style={styles.pinCellsWrapV2}>
+                          <Animated.View style={[styles.pinCellsRowV2, { transform: [{ translateX: getShakeAnim(item.id) }] }]}>
+                            {renderPinCells(pinValue)}
+                          </Animated.View>
+                          <TextInput
+                            ref={(ref) => { otpCellRefs.current[item.id] = ref; }}
+                            value={pinValue}
+                            onChangeText={(val) => {
+                              setOtpInputs({ ...otpInputs, [item.id]: val.replace(/\D/g, '').slice(0, 4) });
+                              setPinErrors((prev) => ({ ...prev, [item.id]: false }));
+                            }}
+                            keyboardType="number-pad"
+                            maxLength={4}
+                            style={styles.hiddenPinInputV2}
+                          />
+                        </View>
+                        {hasPinError && (
+                          <Text style={styles.pinErrorTextV2}>Incorrect PIN — ask rider to check their app</Text>
+                        )}
+                        <TouchableOpacity onPress={() => dropOffRider(item.id)} activeOpacity={0.9}>
+                          <LinearGradient colors={['#1B6B4A', '#0A2E24']} style={styles.dropoffCtaV2}>
+                            <Ionicons name="arrow-forward-circle-outline" size={20} color="#E8A33D" />
+                            <Text style={styles.dropoffCtaTextV2}>Complete drop-off</Text>
+                          </LinearGradient>
+                        </TouchableOpacity>
+                      </View>
+                    )}
+                  </View>
+                );
+              }}
+            />
+          </View>
         </View>
       </View>
     );
@@ -1721,19 +1783,18 @@ const styles = StyleSheet.create({
   //   marginTop: -20, paddingHorizontal: 20, paddingTop: 12, shadowColor: '#000', 
   //   shadowOffset: { width: 0, height: -6 }, shadowOpacity: 0.15, shadowRadius: 15, elevation: 10 
   // },
-  driverBottomSheet: { 
+  driverBottomSheet: {
     position: 'absolute',
     bottom: 0,
     width: '100%',
     height: '50%', // Fixed height allowing map to be visible above
-    backgroundColor: '#f8fafc', 
-    borderTopLeftRadius: 28, 
-    borderTopRightRadius: 28, 
-    paddingHorizontal: 20, 
-    paddingTop: 12, 
-    shadowColor: '#000', 
-    shadowOffset: { width: 0, height: -10 }, 
-    shadowOpacity: 0.15, 
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    overflow: 'hidden',
+    shadowColor: '#1C1C1E',
+    shadowOffset: { width: 0, height: -16 },
+    shadowOpacity: 0.16,
+    shadowRadius: 44,
     elevation: 20,
     zIndex: 10
   },
@@ -1824,39 +1885,6 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
 
-  sheetHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, marginTop: 8 },
-  sheetTitle: { fontSize: 22, fontWeight: '800', color: '#0f172a' },
-  sheetSubtitle: { fontSize: 13, color: '#64748b', fontWeight: '500', marginTop: 2 },
-  queueBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff7ed', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: '#fed7aa' },
-  queueBadgeText: { color: '#FF8811', fontWeight: 'bold', fontSize: 14, marginLeft: 6 },
-  premiumRiderCard: { backgroundColor: '#ffffff', borderRadius: 20, marginBottom: 16, shadowColor: '#94a3b8', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 4, borderWidth: 1, borderColor: '#e2e8f0', overflow: 'hidden' },
-  cardAccentLine: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 5 },
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, paddingLeft: 20, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
-  riderIdentity: { flexDirection: 'row', alignItems: 'center', flex: 1 },
-  queueNumberBadge: { width: 22, height: 22, borderRadius: 11, backgroundColor: Colors.goldAccent, justifyContent: 'center', alignItems: 'center', marginRight: 8 },
-  queueNumberText: { fontSize: 12, fontWeight: '800', color: Colors.primaryColor },
-  avatarMini: { width: 44, height: 44, borderRadius: 22, backgroundColor: Colors.primaryColor, justifyContent: 'center', alignItems: 'center', marginRight: 12, shadowColor: Colors.primaryColor, shadowOpacity: 0.3, shadowOffset: {width: 0, height: 3}, elevation: 4 },
-  avatarMiniText: { fontSize: 18, fontWeight: 'bold', color: '#fff' },
-  riderName: { fontSize: 17, fontWeight: '700', color: '#1e293b' },
-  roleTag: { backgroundColor: '#f1f5f9', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, alignSelf: 'flex-start', marginTop: 4 },
-  roleTagText: { fontSize: 11, fontWeight: '600', color: '#64748b', textTransform: 'uppercase' },
-  cardChatBtn: { backgroundColor: 'rgba(212,175,55,0.08)', width: 46, height: 46, borderRadius: 23, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: 'rgba(212,175,55,0.35)' },
-  tripDetailsZone: { paddingHorizontal: 20, paddingVertical: 14, backgroundColor: '#fdfdfd' },
-  detailRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
-  detailDot: { width: 8, height: 8, borderRadius: 4, marginRight: 10 },
-  detailIcon: { marginRight: 8, marginTop: 2 },
-  detailText: { fontSize: 13, color: '#475569', flex: 1 },
-  statusRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f8fafc', padding: 10, borderRadius: 10 },
-  statusLabel: { fontSize: 12, fontWeight: '600', color: '#64748b' },
-  statusValue: { fontSize: 12, fontWeight: '800', letterSpacing: 0.5 },
-  actionZone: { padding: 16, paddingLeft: 20, borderTopWidth: 1, borderColor: '#f1f5f9', backgroundColor: '#fff' },
-  actionPrompt: { fontSize: 13, fontWeight: '700', color: Colors.secondaryColor, marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 },
-  otpActionRow: { flexDirection: 'row', gap: 12 },
-  modernOtpInput: { flex: 1, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 12, paddingHorizontal: 16, fontSize: 22, letterSpacing: 8, fontWeight: '800', textAlign: 'center', color: '#0f172a' },
-  btnVerifyOrange: { backgroundColor: Colors.secondaryColor, flexDirection: 'row', paddingVertical: 14, paddingHorizontal: 24, borderRadius: 12, justifyContent: 'center', alignItems: 'center', shadowColor: Colors.secondaryColor, shadowOpacity: 0.3, shadowOffset: {width: 0, height: 4}, elevation: 4 },
-  btnText: { color: '#fff', fontWeight: 'bold', fontSize: 15 },
-  btnDropoff: { backgroundColor: Colors.primaryColor, flexDirection: 'row', paddingVertical: 16, borderRadius: 14, alignItems: 'center', justifyContent: 'center', shadowColor: Colors.primaryColor, shadowOpacity: 0.3, shadowOffset: {width: 0, height: 4}, elevation: 4 },
-  btnDropoffText: { color: '#fff', fontWeight: 'bold', fontSize: 16, letterSpacing: 0.5 },
   fourBoxContainer: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 15 },
   otpBoxSingle: { width: 60, height: 60, backgroundColor: '#f1f5f9', borderRadius: 12, borderWidth: 2, borderColor: '#cbd5e1', fontSize: 28, fontWeight: '900', textAlign: 'center', color: '#0f172a' },
   btnVerifyOrangeFull: { backgroundColor: '#FF8811', paddingVertical: 16, borderRadius: 12, alignItems: 'center' },
@@ -2091,5 +2119,355 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
   },
 
+  // ===== Driver Passenger Queue V2 (FIKA Driver Queue hi-fi prototype) =====
+  sheetTint: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(250,247,242,0.94)',
+  },
+  dragHandleV2: {
+    width: 40,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: 'rgba(28,28,30,0.13)',
+    alignSelf: 'center',
+    marginTop: 10,
+    marginBottom: 4,
+  },
+  sheetHeaderRowV2: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    marginTop: 8,
+    marginBottom: 16,
+  },
+  sheetTitleV2: {
+    fontSize: 21,
+    fontWeight: '800',
+    color: '#1C1C1E',
+    letterSpacing: -0.3,
+  },
+  sheetSubtitleV2: {
+    fontSize: 12.5,
+    fontWeight: '600',
+    color: '#8A8175',
+    marginTop: 2,
+  },
+  queueBadgeV2: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(212,175,55,0.14)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(212,175,55,0.42)',
+    paddingVertical: 7,
+    paddingHorizontal: 14,
+    borderRadius: 30,
+  },
+  queueBadgeTextV2: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#8A6D1C',
+  },
+  riderCardV2: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    borderWidth: 1.5,
+    borderColor: 'rgba(28,28,30,0.07)',
+    shadowColor: '#1C1C1E',
+    shadowOpacity: 0.08,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 5,
+    marginBottom: 14,
+    overflow: 'hidden',
+  },
+  riderHeaderRowV2: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 13,
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    paddingBottom: 12,
+  },
+  numberColumnV2: {
+    alignItems: 'center',
+  },
+  numberPillV2: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#0A2E24',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  numberPillTextV2: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#E8A33D',
+  },
+  numberLineV2: {
+    width: 2,
+    height: 22,
+  },
+  avatarV2: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    borderWidth: 2,
+    borderColor: '#D4AF37',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  avatarTextV2: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#FAF7F2',
+  },
+  riderNameV2: {
+    fontSize: 15.5,
+    fontWeight: '700',
+    color: '#1C1C1E',
+  },
+  roleBadgeV2: {
+    alignSelf: 'flex-start',
+    marginTop: 4,
+    paddingVertical: 3,
+    paddingHorizontal: 9,
+    backgroundColor: 'rgba(10,46,36,0.09)',
+    borderRadius: 6,
+  },
+  roleBadgeTextV2: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1,
+    color: '#0A2E24',
+    textTransform: 'uppercase',
+  },
+  chatBtnV2: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(10,46,36,0.08)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  chatUnreadDotV2: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#5BC9A0',
+    borderWidth: 2,
+    borderColor: '#fff',
+  },
+  dividerV2: {
+    height: 1,
+    backgroundColor: 'rgba(28,28,30,0.06)',
+    marginHorizontal: 14,
+  },
+  tripDetailsV2: {
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  detailRowV2: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 11,
+    marginBottom: 9,
+  },
+  pickupDotV2: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#5BC9A0',
+    marginTop: 3,
+  },
+  dropoffDotV2: {
+    width: 10,
+    height: 10,
+    borderRadius: 3,
+    backgroundColor: '#E8A33D',
+    marginTop: 3,
+  },
+  detailLabelV2: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    color: '#9A9082',
+    textTransform: 'uppercase',
+  },
+  detailAddressV2: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#1C1C1E',
+    marginTop: 1,
+  },
+  statusRowV2: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    paddingHorizontal: 13,
+    borderRadius: 12,
+  },
+  statusRowLeftV2: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  statusDotV2: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  statusLabelV2: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#6B6358',
+    letterSpacing: 0.3,
+  },
+  statusValueV2: {
+    fontSize: 12.5,
+    fontWeight: '800',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+  actionZoneV2: {
+    paddingHorizontal: 2,
+    paddingTop: 2,
+    marginBottom: 4,
+  },
+  pinLabelV2: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    letterSpacing: 1.5,
+    color: '#8A6D1C',
+    textTransform: 'uppercase',
+    marginBottom: 10,
+  },
+  pinCellsWrapV2: {
+    position: 'relative',
+  },
+  pinCellsRowV2: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 10,
+  },
+  pinCell: {
+    flex: 1,
+    height: 58,
+    borderRadius: 14,
+    backgroundColor: '#FAF7F2',
+    borderWidth: 2,
+    borderColor: 'rgba(28,28,30,0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  pinCellFilled: {
+    backgroundColor: 'rgba(212,175,55,0.1)',
+    borderColor: '#D4AF37',
+    shadowColor: '#D4AF37',
+    shadowOpacity: 0.22,
+    shadowRadius: 12,
+    elevation: 2,
+  },
+  pinDigitText: {
+    fontSize: 26,
+    fontWeight: '800',
+    color: '#0A2E24',
+  },
+  hiddenPinInputV2: {
+    // Covers the full pin-cells row (not a tiny 1x1 dot) so the tap
+    // lands directly on the input - a near-zero-size hidden TextInput
+    // is unreliable for focus/keyboard on Android.
+    ...StyleSheet.absoluteFillObject,
+    opacity: 0,
+  },
+  pinErrorTextV2: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: Colors.redColor,
+    marginBottom: 10,
+  },
+  verifyCtaV2: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    paddingVertical: 16,
+    borderRadius: 16,
+    shadowColor: '#E8A33D',
+    shadowOpacity: 0.38,
+    shadowRadius: 28,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 6,
+    marginBottom: 6,
+  },
+  verifyCtaTextV2: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#2A1F06',
+    letterSpacing: 0.3,
+  },
+  transitCardV2: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 12,
+    paddingHorizontal: 14,
+    backgroundColor: 'rgba(91,201,160,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(91,201,160,0.35)',
+    borderRadius: 14,
+    marginBottom: 14,
+  },
+  transitLeftV2: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  transitTextV2: {
+    fontSize: 13.5,
+    fontWeight: '700',
+    color: '#0A2E24',
+  },
+  transitEtaRowV2: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 3,
+  },
+  transitEtaNumV2: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#0A2E24',
+    letterSpacing: -0.5,
+  },
+  transitEtaUnitV2: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#5C7068',
+  },
+  dropoffCtaV2: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 11,
+    paddingVertical: 17,
+    borderRadius: 16,
+    shadowColor: '#0A2E24',
+    shadowOpacity: 0.32,
+    shadowRadius: 28,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 6,
+    marginBottom: 6,
+  },
+  dropoffCtaTextV2: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#FAF7F2',
+  },
 
 });

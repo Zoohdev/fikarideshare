@@ -5,14 +5,14 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.decorators import action
 from rest_framework.parsers import MultiPartParser, FormParser
 from django.shortcuts import get_object_or_404
-from django.db.models import Q
+from django.db.models import Q, Sum, Count
 from django.db import transaction
 from django.shortcuts import render
 from django.conf import settings
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
-from .models import Ride, RideParticipant,EmergencySOS,RideShareLink,RideLocation,ChatMessage
+from .models import Ride, RideParticipant,EmergencySOS,RideShareLink,RideLocation,ChatMessage,default_expiry
 from .serializers import (
     RideEstimateSerializer,
     RideCreateSerializer,
@@ -218,7 +218,7 @@ class RideViewSet(viewsets.ModelViewSet):
 
                         return Response(
                             {
-                                **RideSerializer(pool).data,
+                                **RideSerializer(pool, context={'request': request}).data,
                                 "joined_existing_pool": True,
                                 "participant_id": str(participant.id),
                                 "pool_status": "pending_driver_approval",
@@ -330,14 +330,26 @@ class RideViewSet(viewsets.ModelViewSet):
     def dropoff_user(self, request, pk=None):
         ride = self.get_object()
         user_id_to_drop = request.data.get('user_id')
+        code = str(request.data.get('code', '')).strip()
         service = RideService()
-        
+
         # Case A: Dropping off a Pool Participant
-        participant = ride.participants.filter(user_id=user_id_to_drop, status='picked_up').first()
+        # is_organizer=False is required here - without it, this also
+        # matches the primary rider's own mirrored RideParticipant row
+        # (pickup verification sets it to 'picked_up' same as everyone
+        # else), routing them through Case A instead of Case B. Case A
+        # then reads participant.estimated_fare_contribution, which is
+        # never set for the organizer (only create_ride()'s pool-joiner
+        # path sets it) - producing a None fare that showed up on-screen
+        # as "R NaN" (rider) and "Rundefined" (driver, see below).
+        participant = ride.participants.filter(user_id=user_id_to_drop, status='picked_up', is_organizer=False).first()
         if participant:
+            if not code or code != participant.dropoff_code:
+                return Response({'error': 'Invalid drop-off code.'}, status=status.HTTP_400_BAD_REQUEST)
+
             # Finalize their specific fare
             final_fare = participant.estimated_fare_contribution
-            
+
             participant.status = RideParticipant.Status.DROPPED_OFF
             participant.fare_amount = final_fare
             participant.save()
@@ -367,25 +379,35 @@ class RideViewSet(viewsets.ModelViewSet):
                     actor=request.user,
                     data={}
                 )
-                return Response({'status': 'ride_fully_completed', 'user_id': user_id_to_drop})
+                # ride.final_fare is now populated by update_ride_status's
+                # _calculate_final_fare (it mutates this same ride object) -
+                # the real total, not missing entirely like before.
+                return Response({
+                    'status': 'ride_fully_completed',
+                    'user_id': user_id_to_drop,
+                    'fare': float(ride.final_fare) if ride.final_fare is not None else final_fare,
+                })
 
             service.push_optimized_route(ride)
             return Response({'status': 'dropped_off', 'user_id': user_id_to_drop, 'fare': final_fare})
 
         # Case B: Dropping off the Primary Rider
         if str(ride.rider.id) == str(user_id_to_drop) and ride.status == ride.Status.IN_PROGRESS:
-            ride_fare = ride.estimated_fare
-
             # Keep the organizer's own RideParticipant row in sync, so the
             # "is the car empty" check below (and in Case A) sees them as
-            # gone too, instead of only ever checking pool joiners.
+            # gone too, instead of only ever checking pool joiners. Also
+            # the only place that holds their dropoff_code, so it's
+            # required (not just an optional sync step) once codes exist.
             organizer_participant = ride.participants.filter(
                 user_id=user_id_to_drop, is_organizer=True
             ).first()
-            if organizer_participant:
-                organizer_participant.status = RideParticipant.Status.DROPPED_OFF
-                organizer_participant.fare_amount = ride_fare
-                organizer_participant.save()
+            if not organizer_participant or not code or code != organizer_participant.dropoff_code:
+                return Response({'error': 'Invalid drop-off code.'}, status=status.HTTP_400_BAD_REQUEST)
+
+            ride_fare = ride.estimated_fare
+            organizer_participant.status = RideParticipant.Status.DROPPED_OFF
+            organizer_participant.fare_amount = ride_fare
+            organizer_participant.save()
 
             service._broadcast_ride_update(ride, {
                 'event': 'individual_dropped_off',
@@ -402,7 +424,10 @@ class RideViewSet(viewsets.ModelViewSet):
                     actor=request.user,
                     data={}
                 )
-                return Response({'status': 'ride_fully_completed', 'fare': ride_fare})
+                return Response({
+                    'status': 'ride_fully_completed',
+                    'fare': float(ride.final_fare) if ride.final_fare is not None else ride_fare,
+                })
 
             service.push_optimized_route(ride)
             return Response({'status': 'primary_rider_dropped_off', 'fare': ride_fare})
@@ -426,7 +451,7 @@ class RideViewSet(viewsets.ModelViewSet):
         ).first()
        
         if ride:
-            serializer = RideSerializer(ride)
+            serializer = RideSerializer(ride, context={'request': request})
             return Response(serializer.data)
         else:
             return Response({'message': 'No active ride'}, status=status.HTTP_404_NOT_FOUND)
@@ -545,6 +570,38 @@ class DriverRideRequestsView(APIView):
        
         serializer = RideSerializer(requests, many=True)
         return Response(serializer.data)
+
+
+class DriverDashboardStatsView(APIView):
+    """
+    Today's earnings, trip count, and rating for the driver home screen
+    dashboard - powers the stat cards shown while online/waiting.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if not request.user.is_driver:
+            return Response(
+                {'error': 'Only drivers can view dashboard stats'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        today_totals = Ride.objects.filter(
+            driver=request.user,
+            status=Ride.Status.COMPLETED,
+            completed_at__date=timezone.localdate(),
+        ).aggregate(
+            earnings=Sum('final_fare'),
+            trips=Count('id'),
+        )
+
+        return Response({
+            'today_earnings': today_totals['earnings'] or 0,
+            'trips_today': today_totals['trips'] or 0,
+            'rating': request.user.average_rating,
+            'total_ratings': request.user.total_ratings,
+        })
 
 
 class DriverAcceptRideView(APIView):
@@ -871,14 +928,35 @@ class CreateRideShareLinkAPIView(APIView):
 
         ride = Ride.objects.get(id=ride_id)
 
+        is_participant = (
+            ride.rider_id == request.user.id
+            or ride.driver_id == request.user.id
+            or ride.participants.filter(user=request.user).exists()
+        )
+        if not is_participant:
+            return Response(
+                {"error": "You're not part of this ride."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
         link, created = RideShareLink.objects.get_or_create(
             ride=ride
         )
 
+        # get_or_create only applies field defaults on creation - a second
+        # share attempt after the link expired (or was deactivated) would
+        # otherwise silently hand out the same dead link forever.
+        if not created and (not link.is_active or timezone.now() > link.expires_at):
+            link.is_active = True
+            link.expires_at = default_expiry()
+            link.save(update_fields=['is_active', 'expires_at'])
+
+        # Built from the request itself rather than hardcoded - this is
+        # exactly the host/port the phone just used to reach the server,
+        # so it's correct regardless of which LAN IP that happens to be.
         return Response({
             "token": str(link.token),
-            "share_url":
-            f"http://192.168.0.112:8000/api/rides/track/{link.token}"
+            "share_url": f"http://{request.get_host()}/api/rides/track/{link.token}/"
         })
 
 class AcceptPoolRequestAPIView(APIView):

@@ -51,6 +51,12 @@
           "photosPermission": "The app accesses your photos to let you share them with your vehicle profile."
         }
       ],
+      [
+        "expo-contacts",
+        {
+          "contactsPermission": "The app accesses your contacts so you can share your live trip with someone."
+        }
+      ],
       "expo-notifications"
     ],
     

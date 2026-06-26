@@ -7,7 +7,9 @@ import {
   ScrollView,
   ActivityIndicator,
   Image ,
-  Share
+  Share,
+  Modal,
+  TouchableOpacity,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import MapView, { Marker, Polyline } from 'react-native-maps';
@@ -15,9 +17,11 @@ import MapViewDirections from 'react-native-maps-directions';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import * as Contacts from 'expo-contacts';
+import * as SMS from 'expo-sms';
 import api from '../../services/api';
 import { Key } from '../../constants/key';
-import { MAP_THEME, LIVE_TRACKING_DELTA, ROUTE_LINE_COLOR, ROUTE_GLOW_COLOR, ROUTE_HIGHLIGHT_COLOR } from '../../constants/mapTheme';
+import { MAP_THEME, LIVE_TRACKING_DELTA, ROUTE_LINE_COLOR, ROUTE_GLOW_COLOR, ROUTE_HIGHLIGHT_COLOR, GOOGLE_MAP_ID } from '../../constants/mapTheme';
 import { WS_TRACKING_URL } from '../../constants/apiConfig';
 import AnimatedDriverMarker from './components/AnimatedDriverMarker';
 import SOSButton from '../../components/SOSbutton';
@@ -44,6 +48,9 @@ export default function RiderInTripScreen() {
   const [routeCoords, setRouteCoords] = useState([]);
   const mapReadyRef = useRef(false);
   const [etaMinutes, setEtaMinutes] = useState(null);
+  const [shareModalVisible, setShareModalVisible] = useState(false);
+  const [shareUrl, setShareUrl] = useState(null);
+  const [sharingToContact, setSharingToContact] = useState(false);
 
   useEffect(() => {
     initializeScreen();
@@ -56,21 +63,53 @@ export default function RiderInTripScreen() {
   // Auto-zoom effect to keep route coordinates visible inside the map frame
    // Re-runs instantly when rideData or driver position shifts
 
-  const shareTrip = async () => {
+  // Fetches/refreshes the live-tracking link and opens the custom popup -
+  // replaces the old behavior of going straight to the native share sheet,
+  // since the user wants a dedicated "share to a contact via SMS" action
+  // instead.
+  const openShareModal = async () => {
+    try {
+      const response = await api.post(`/rides/trips/${rideId}/share/`);
+      setShareUrl(response.data.share_url);
+      setShareModalVisible(true);
+    } catch (err) {
+      Alert.alert("Error", "Could not create a tracking link right now.");
+    }
+  };
 
-    const response =
-      await api.post(
-        `/rides/trips/${rideId}/share/`
-      );
-   
-    const url =
-      response.data.share_url;
-   
-    await Share.share({
-      message:
-        `Track my trip live:\n${url}`
-    });
-   };
+  const shareToContact = async () => {
+    if (!shareUrl) return;
+    setSharingToContact(true);
+    try {
+      const { status } = await Contacts.requestPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert("Permission needed", "Allow contacts access to pick who to share your trip with.");
+        return;
+      }
+
+      const contact = await Contacts.presentContactPickerAsync();
+      if (!contact) return;
+
+      const number = contact.phoneNumbers?.[0]?.number;
+      if (!number) {
+        Alert.alert("No phone number", `${contact.name || "That contact"} doesn't have a phone number saved.`);
+        return;
+      }
+
+      const smsAvailable = await SMS.isAvailableAsync();
+      if (!smsAvailable) {
+        Alert.alert("SMS unavailable", "This device can't send SMS messages.");
+        return;
+      }
+
+      await SMS.sendSMSAsync([number], `Track my trip live: ${shareUrl}`);
+      setShareModalVisible(false);
+    } catch (err) {
+      Alert.alert("Error", "Could not share the trip to that contact.");
+    } finally {
+      setSharingToContact(false);
+    }
+  };
 
 
   
@@ -157,21 +196,24 @@ export default function RiderInTripScreen() {
             // are still in the car. Mirrors rideTrackingScreen.js's
             // handling of this same event.
             if (data.event === 'individual_dropped_off' && String(data.user_id) === String(uid)) {
-              Alert.alert("Ride Complete", "You have arrived at your destination!");
               wsRef.current?.close();
+              // Fare screen first (it's the only place that actually calls
+              // /payments/charge/) - feedbackScreen has no payment step at
+              // all, so routing straight there silently skipped charging
+              // the rider. Mirrors rideTrackingScreen.js's destination for
+              // this same event.
               router.replace({
-                pathname: '/feedback/feedbackScreen',
-                params: { rideId, fare: data.final_fare || rideData?.estimated_fare }
+                pathname: '/fareSummary/fareSummaryScreen',
+                params: { rideId, fare: data.final_fare || rideData?.estimated_fare, role: 'rider' }
               });
               return;
             }
 
             if (status === 'completed') {
-              Alert.alert("Ride Complete", "You have arrived at your destination!");
               wsRef.current?.close();
               router.replace({
-                pathname: '/feedback/feedbackScreen',
-                params: { rideId, fare: data.final_fare || rideData?.estimated_fare }
+                pathname: '/fareSummary/fareSummaryScreen',
+                params: { rideId, fare: data.final_fare || rideData?.estimated_fare, role: 'rider' }
               });
             }
             if (status === 'cancelled') {
@@ -252,6 +294,7 @@ export default function RiderInTripScreen() {
             console.log("MAP READY");
           }}
           style={styles.webview}
+          mapId={GOOGLE_MAP_ID}
           customMapStyle={customMapTheme}
           initialRegion={{
             latitude: targetDropoff.latitude || -26.2041,
@@ -348,6 +391,10 @@ export default function RiderInTripScreen() {
         </MapView>
 
         <SOSButton rideId={rideId} />
+
+        <TouchableOpacity style={styles.shareTripButton} onPress={openShareModal}>
+          <Ionicons name="share-social" size={20} color="#0F172A" />
+        </TouchableOpacity>
       </View>
 
       <View style={styles.bottomSheet}>
@@ -382,6 +429,13 @@ export default function RiderInTripScreen() {
             </View>
           </View>
 
+          {rideData?.my_dropoff_code && (
+            <View style={styles.dropoffCodeBanner}>
+              <Text style={styles.dropoffCodeLabel}>GIVE THIS CODE TO YOUR DRIVER AT DROP-OFF</Text>
+              <Text style={styles.dropoffCodeValue}>{rideData.my_dropoff_code}</Text>
+            </View>
+          )}
+
           <View style={styles.driverCard}>
             <View style={styles.driverInfoContainer}>
               <Text style={styles.driverLabel}>Assigned Operator</Text>
@@ -415,12 +469,65 @@ export default function RiderInTripScreen() {
           </View>
         </ScrollView>
       </View>
+
+      <Modal
+        visible={shareModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShareModalVisible(false)}
+      >
+        <View style={styles.shareModalOverlay}>
+          <View style={styles.shareModalCard}>
+            <Text style={styles.shareModalTitle}>Share Live Trip</Text>
+            <Text style={styles.shareModalSubtitle}>Anyone with this link can see your trip&apos;s location in real time.</Text>
+
+            <View style={styles.shareLinkBox}>
+              <Text style={styles.shareLinkText} numberOfLines={1}>{shareUrl}</Text>
+            </View>
+
+            <TouchableOpacity
+              style={styles.shareToContactButton}
+              onPress={shareToContact}
+              disabled={sharingToContact}
+            >
+              {sharingToContact ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <>
+                  <Ionicons name="people" size={18} color="#fff" style={{ marginRight: 8 }} />
+                  <Text style={styles.shareToContactText}>Share to Contact</Text>
+                </>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.shareModalCloseButton} onPress={() => setShareModalVisible(false)}>
+              <Text style={styles.shareModalCloseText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
+  shareTripButton: {
+    position: "absolute", top: 60, right: 20, zIndex: 20,
+    width: 44, height: 44, borderRadius: 22, backgroundColor: "#fff",
+    alignItems: "center", justifyContent: "center",
+    shadowColor: "#000", shadowOpacity: 0.2, shadowRadius: 4, shadowOffset: { width: 0, height: 2 }, elevation: 5,
+  },
+  shareModalOverlay: { flex: 1, backgroundColor: "rgba(15,23,42,0.55)", justifyContent: "center", alignItems: "center", padding: 24 },
+  shareModalCard: { width: "100%", backgroundColor: "#fff", borderRadius: 20, padding: 24 },
+  shareModalTitle: { fontSize: 18, fontWeight: "800", color: "#0F172A", marginBottom: 6 },
+  shareModalSubtitle: { fontSize: 13, color: "#64748B", marginBottom: 18 },
+  shareLinkBox: { backgroundColor: "#F1F5F9", borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 18 },
+  shareLinkText: { fontSize: 13, color: "#334155", fontWeight: "600" },
+  shareToContactButton: { flexDirection: "row", backgroundColor: "#0F172A", borderRadius: 12, paddingVertical: 14, alignItems: "center", justifyContent: "center", marginBottom: 10 },
+  shareToContactText: { color: "#fff", fontWeight: "700", fontSize: 15 },
+  shareModalCloseButton: { alignItems: "center", paddingVertical: 10 },
+  shareModalCloseText: { color: "#64748B", fontWeight: "600", fontSize: 14 },
   webview: { flex: 1 },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' },
   mapContainer: { flex: 0.55, position: 'relative' },
@@ -465,6 +572,9 @@ const styles = StyleSheet.create({
   codeLabel: { fontSize: 11, color: "#64748B", fontWeight: "600", textTransform: "uppercase", marginBottom: 4 },
   codeContainer: { backgroundColor: "#FFF7ED", borderWidth: 1, borderColor: "#FED7AA", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
   codeText: { fontSize: 16, fontWeight: "800", color: "#C2410C", letterSpacing: 0.5 },
+  dropoffCodeBanner: { backgroundColor: "#FFF7ED", borderWidth: 1, borderColor: "#FED7AA", borderRadius: 16, paddingVertical: 14, alignItems: "center", marginBottom: 20 },
+  dropoffCodeLabel: { fontSize: 11, color: "#9A3412", fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 },
+  dropoffCodeValue: { fontSize: 28, fontWeight: "900", color: "#C2410C", letterSpacing: 8 },
   
   driverCard: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: "#F8FAFC", paddingVertical: 14, paddingHorizontal: 16, borderRadius: 16, borderWidth: 1, borderColor: '#E2E8F0', marginBottom: 20 },
   driverInfoContainer: { flex: 1 },

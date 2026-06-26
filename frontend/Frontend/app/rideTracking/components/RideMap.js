@@ -7,7 +7,7 @@ import MapViewDirections from "react-native-maps-directions";
 import AnimatedDriverMarker from "./AnimatedDriverMarker";
 import RiderProfileMarker from "./RiderProfileMarker";
 import { Key } from "../../../constants/key";
-import { getRegion, ROUTE_LINE_COLOR } from "../../../constants/mapTheme";
+import { getRegion, ROUTE_LINE_COLOR, GOOGLE_MAP_ID } from "../../../constants/mapTheme";
 const GOOGLE_MAPS_API_KEY = Key.apiKey;
 
 const RideMap = ({
@@ -37,6 +37,7 @@ const RideMap = ({
         flex: 1,
       }}
       provider="google"
+      mapId={GOOGLE_MAP_ID}
       customMapStyle={
         customMapTheme
       }

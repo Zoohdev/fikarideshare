@@ -4,45 +4,54 @@ import { Colors } from './styles';
 // a MapView. Previously this style array (and the zoom level) was copy-pasted
 // independently into ~10 screens, drifting out of sync.
 //
-// Restyled per the "FIKA Premium" claude.ai/design prototype (vibrant map
-// mood, confirmed final): saturated blue water, confident green parks, warm
-// cream roads with gold hairline strokes, warm cream/tan base geometry, and
-// landmark labels in the deep teal brand color - replaces the prior
-// deliberately-monochrome Uber-style theme.
-
+// Ported from the teammate's map-theme update (origin/Frontend branch):
+// soft blue-gray administrative areas, sage/lime parks, light blue water,
+// and white-to-steel-blue roads - a civic Google-Maps look, replacing the
+// prior "FIKA Premium" warm gold/teal theme.
 export const MAP_THEME = [
-  { elementType: 'geometry', stylers: [{ color: '#F5F0E8' }] },
-  { elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
-  { elementType: 'labels.text.fill', stylers: [{ color: '#0A2E24' }] },
-  { elementType: 'labels.text.stroke', stylers: [{ color: '#F5F0E8' }] },
+  { featureType: 'administrative', elementType: 'geometry.fill', stylers: [{ color: '#d6e2e6' }] },
+  { featureType: 'administrative', elementType: 'geometry.stroke', stylers: [{ color: '#cfd4d5' }] },
+  { featureType: 'administrative', elementType: 'labels.text.fill', stylers: [{ color: '#7492a8' }] },
+  { featureType: 'administrative.neighborhood', elementType: 'labels.text.fill', stylers: [{ lightness: 25 }] },
 
-  { featureType: 'administrative.land_parcel', elementType: 'labels', stylers: [{ visibility: 'off' }] },
-  { featureType: 'administrative.neighborhood', elementType: 'labels.text.fill', stylers: [{ color: '#0A2E24' }, { visibility: 'simplified' }] },
+  { featureType: 'landscape.man_made', elementType: 'geometry.fill', stylers: [{ color: '#dde2e3' }] },
+  { featureType: 'landscape.man_made', elementType: 'geometry.stroke', stylers: [{ color: '#cfd4d5' }] },
+  { featureType: 'landscape.natural', elementType: 'geometry.fill', stylers: [{ color: '#dde2e3' }] },
+  { featureType: 'landscape.natural', elementType: 'labels.text.fill', stylers: [{ color: '#7492a8' }] },
+  { featureType: 'landscape.natural.terrain', elementType: 'geometry', stylers: [{ visibility: 'off' }] },
 
-  // Landmarks: branded teal labels, no generic pin icons - keeps it clean
-  // without hiding what the landmark actually is.
-  { featureType: 'poi', elementType: 'geometry', stylers: [{ color: '#EEE5D6' }] },
-  { featureType: 'poi', elementType: 'labels.text.fill', stylers: [{ color: '#0A2E24' }] },
-  { featureType: 'poi.park', elementType: 'geometry.fill', stylers: [{ color: '#9BC99A' }] },
-  { featureType: 'poi.park', elementType: 'labels.text.fill', stylers: [{ color: '#1B6B4A' }] },
+  { featureType: 'poi', elementType: 'geometry.fill', stylers: [{ color: '#dde2e3' }] },
+  { featureType: 'poi', elementType: 'labels.icon', stylers: [{ saturation: -100 }] },
+  { featureType: 'poi', elementType: 'labels.text.fill', stylers: [{ color: '#588ca4' }] },
+  { featureType: 'poi.park', elementType: 'geometry.fill', stylers: [{ color: '#a9de83' }] },
+  { featureType: 'poi.park', elementType: 'geometry.stroke', stylers: [{ color: '#bae6a1' }] },
+  { featureType: 'poi.sports_complex', elementType: 'geometry.fill', stylers: [{ color: '#c6e8b3' }] },
+  { featureType: 'poi.sports_complex', elementType: 'geometry.stroke', stylers: [{ color: '#bae6a1' }] },
 
-  // Roads: warm cream fill, gold hairline stroke - hierarchy comes from
-  // both width and a touch of warm color, not flat gray.
-  { featureType: 'road', elementType: 'geometry.fill', stylers: [{ color: '#FBF8F3' }] },
-  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#E7D49B' }] },
-  { featureType: 'road', elementType: 'labels.text.fill', stylers: [{ color: '#6B6358' }] },
-  { featureType: 'road.arterial', elementType: 'geometry.stroke', stylers: [{ color: '#E3C56A' }] },
-  { featureType: 'road.highway', elementType: 'geometry.fill', stylers: [{ color: '#FBF8F3' }] },
-  { featureType: 'road.highway', elementType: 'geometry.stroke', stylers: [{ color: '#D4AF37' }] },
-  { featureType: 'road.highway', elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
-  { featureType: 'road.highway', elementType: 'labels.text.fill', stylers: [{ color: '#0A2E24' }] },
+  { featureType: 'road', elementType: 'labels.icon', stylers: [{ saturation: -45 }, { lightness: 10 }, { visibility: 'on' }] },
+  { featureType: 'road', elementType: 'labels.text.fill', stylers: [{ color: '#41626b' }] },
+  { featureType: 'road.arterial', elementType: 'geometry.fill', stylers: [{ color: '#ffffff' }] },
+  { featureType: 'road.highway', elementType: 'geometry.fill', stylers: [{ color: '#c1d1d6' }] },
+  { featureType: 'road.highway', elementType: 'geometry.stroke', stylers: [{ color: '#a6b5bb' }] },
+  { featureType: 'road.highway', elementType: 'labels.icon', stylers: [{ visibility: 'on' }] },
+  { featureType: 'road.highway.controlled_access', elementType: 'geometry.fill', stylers: [{ color: '#9fb6bd' }] },
+  { featureType: 'road.local', elementType: 'geometry.fill', stylers: [{ color: '#ffffff' }] },
 
-  { featureType: 'transit.line', elementType: 'geometry', stylers: [{ color: '#E7D49B' }] },
-  { featureType: 'transit.station', elementType: 'labels.text.fill', stylers: [{ color: '#6B6358' }] },
+  { featureType: 'transit', elementType: 'labels.icon', stylers: [{ saturation: -70 }] },
+  { featureType: 'transit.line', elementType: 'geometry.fill', stylers: [{ color: '#b4cbd4' }] },
+  { featureType: 'transit.line', elementType: 'labels.text.fill', stylers: [{ color: '#588ca4' }] },
+  { featureType: 'transit.station', elementType: 'labels.text.fill', stylers: [{ color: '#008cb5' }] },
+  { featureType: 'transit.station.airport', elementType: 'geometry.fill', stylers: [{ saturation: -100 }, { lightness: -5 }] },
 
-  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#5DA9C7' }] },
-  { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#0A4A5C' }] },
+  { featureType: 'water', elementType: 'geometry.fill', stylers: [{ color: '#a6cbe3' }] },
 ];
+
+// Google Cloud Console-managed cloud style, also ported from the teammate's
+// branch. On Android/iOS with provider="google", mapId takes priority over
+// customMapStyle once both are set - MAP_THEME above still applies as a
+// fallback wherever mapId isn't passed. Tied to the same Maps API key/
+// project as Key.apiKey, so it resolves under our own key too.
+export const GOOGLE_MAP_ID = '683bbaed124217965ad088fb';
 
 // Degrees of lat/lng span shown on screen - smaller is more zoomed in.
 // Live tracking (driver en route, in-trip, pickup picker) wants a close,

@@ -1,6 +1,6 @@
 from django.contrib.auth.base_user import BaseUserManager
 from django.contrib.gis.measure import D
-from django.contrib.gis.db.models.functions import Distance
+from django.contrib.gis.db.models.functions import Distance as GeoDistance
 class UserManager(BaseUserManager):
     """
     Custom user model manager where email is the unique identifier
@@ -43,9 +43,14 @@ class UserManager(BaseUserManager):
         """
         Filters for drivers who are online, active, and within the radius.
         Includes users with user_type 'driver' or 'both'.
+
+        Ordered nearest-first (current_location is a geography column, so
+        this annotation is real meters, not raw degrees) - previously
+        unordered, so ride matching picked whichever driver row the DB
+        happened to return first rather than the actually-closest one.
         """
         return self.filter(
             user_type__in=['driver', 'both'],
             is_online=True,
             current_location__distance_lte=(point, D(km=radius_km))
-        ).distinct()
+        ).annotate(distance=GeoDistance('current_location', point)).order_by('distance').distinct()

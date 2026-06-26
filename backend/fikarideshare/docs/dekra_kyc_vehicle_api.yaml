@@ -1,0 +1,905 @@
+openapi: 3.0.3
+info:
+  title: Fika Ride-Share API — KYC, Driver License, Vehicle Registration & DEKRA Inspection
+  description: >
+    Endpoints covering identity verification (KYC via Onfido), driver license
+    submission, vehicle registration/garage management, and DEKRA vehicle
+    roadworthiness inspection.
+  version: "1.0.0"
+servers:
+  - url: /api
+
+tags:
+  - name: KYC
+    description: Identity verification (Onfido-backed)
+  - name: Driver License
+    description: Driver license submission and status
+  - name: Vehicles
+    description: Vehicle registration and garage management
+  - name: DEKRA
+    description: Vehicle roadworthiness inspection via DEKRA
+
+paths:
+  /kyc/identity/:
+    get:
+      tags: [KYC]
+      summary: Get current user's KYC verification status
+      description: Returns the most recent KYC verification record for the authenticated user.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Verification status (or a placeholder if none exists yet)
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/KYCVerification'
+                  - type: object
+                    properties:
+                      status:
+                        type: string
+                        example: pending
+                      message:
+                        type: string
+                        example: No KYC verification profile found.
+    post:
+      tags: [KYC]
+      summary: Initiate identity (KYC) verification
+      description: >
+        Starts a new Onfido identity verification flow for the authenticated user
+        and returns an SDK token for the client to continue the check.
+        If `ONFIDO_API_TOKEN` is not configured on the server, the verification
+        is auto-approved (dev mode).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/KYCInitiateRequest'
+            encoding:
+              document_type:
+                contentType: text/plain
+              document_country:
+                contentType: text/plain
+      responses:
+        "201":
+          description: Verification started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Identity verification started.
+                  verification_id:
+                    type: string
+                    format: uuid
+                  sdk_token:
+                    type: string
+                    example: dev-mode-no-token
+                  status:
+                    $ref: '#/components/schemas/KYCStatus'
+        "400":
+          description: Validation error (invalid document_type/document_country)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        "502":
+          description: Unable to start identity verification with the provider
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: Unable to start identity verification.
+                  detail:
+                    type: object
+
+  /kyc/webhook/:
+    post:
+      tags: [KYC]
+      summary: Onfido verification result webhook
+      description: >
+        Callback invoked by Onfido when a check completes. Not authenticated
+        (signature verification should be added in production). Not intended
+        to be called directly by API clients.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OnfidoWebhookPayload'
+      responses:
+        "200":
+          description: Webhook processed (always returns empty body)
+
+  /kyc/license/:
+    get:
+      tags: [Driver License]
+      summary: Get the authenticated user's driver license record
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Driver license record (or a placeholder if none exists yet)
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/DriverLicense'
+                  - type: object
+                    properties:
+                      status:
+                        type: string
+                        example: pending
+                      message:
+                        type: string
+                        example: No driver license record has been filed.
+    post:
+      tags: [Driver License]
+      summary: Submit driver license for verification
+      description: >
+        Creates the driver license record for the authenticated user. Fails if
+        a license has already been filed (OneToOne with user). If
+        `ONFIDO_API_TOKEN` is not configured on the server, the license is
+        auto-verified (dev mode).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/DriverLicenseCreateRequest'
+      responses:
+        "201":
+          description: License submitted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Driver license submitted successfully for verification validation.
+                  license_id:
+                    type: string
+                    format: uuid
+                  status:
+                    $ref: '#/components/schemas/DriverLicenseStatus'
+        "400":
+          description: Validation error, or a license already exists for this user
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ValidationError'
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                        example: A driver license file already exists for this profile.
+
+  /vehicles/garage/:
+    get:
+      tags: [Vehicles]
+      summary: List the authenticated driver's vehicles
+      description: Ordered by primary vehicle first, then most recently created.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: List of vehicles
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Vehicle'
+    post:
+      tags: [Vehicles]
+      summary: Register a new vehicle
+      description: >
+        Creates a vehicle for the authenticated driver. The first vehicle
+        registered is automatically set as primary. If `DEKRA_API_KEY` is not
+        configured on the server, the vehicle's DEKRA status is auto-approved
+        (dev mode).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/VehicleCreateRequest'
+      responses:
+        "201":
+          description: Vehicle created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Vehicle'
+        "400":
+          description: Validation error (e.g. duplicate license plate)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+
+  /vehicles/garage/{id}/:
+    parameters:
+      - $ref: '#/components/parameters/VehicleId'
+    get:
+      tags: [Vehicles]
+      summary: Retrieve a single vehicle
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Vehicle detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Vehicle'
+        "404":
+          description: Vehicle not found or not owned by the authenticated user
+    put:
+      tags: [Vehicles]
+      summary: Update a vehicle (full update)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/VehicleUpdateRequest'
+      responses:
+        "200":
+          description: Updated vehicle
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Vehicle'
+    patch:
+      tags: [Vehicles]
+      summary: Update a vehicle (partial update)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/VehicleUpdateRequest'
+      responses:
+        "200":
+          description: Updated vehicle
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Vehicle'
+    delete:
+      tags: [Vehicles]
+      summary: Delete a vehicle
+      security:
+        - bearerAuth: []
+      responses:
+        "204":
+          description: Vehicle deleted
+
+  /vehicles/garage/{id}/set_primary/:
+    post:
+      tags: [Vehicles]
+      summary: Set a vehicle as the driver's primary vehicle
+      description: Unsets is_primary on all of the driver's other vehicles.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/VehicleId'
+      responses:
+        "200":
+          description: Primary vehicle updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: Vehicle set as primary
+
+  /vehicles/garage/{id}/request_inspection/:
+    post:
+      tags: [Vehicles, DEKRA]
+      summary: Request a DEKRA roadworthiness inspection for a vehicle
+      description: >
+        Fails with 400 if an inspection is already requested/scheduled/in
+        progress for the vehicle, or if the DEKRA API request itself fails.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/VehicleId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InspectionRequest'
+      responses:
+        "200":
+          description: Inspection requested successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  inspection_id:
+                    type: string
+                    format: uuid
+                  dekra_request_id:
+                    type: string
+                  status:
+                    type: string
+                    example: requested
+        "400":
+          description: An inspection is already pending, or the DEKRA request failed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+
+  /vehicles/garage/{id}/inspections/:
+    get:
+      tags: [Vehicles, DEKRA]
+      summary: List inspection history for a vehicle
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/VehicleId'
+      responses:
+        "200":
+          description: List of inspections, most recent first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/VehicleInspection'
+
+  /vehicles/dekra/webhook/:
+    post:
+      tags: [DEKRA]
+      summary: DEKRA inspection result webhook
+      description: >
+        Callback invoked by DEKRA on inspection lifecycle events
+        (`inspection.scheduled`, `inspection.completed`, `inspection.failed`).
+        Not authenticated (signature verification should be added in
+        production). Not intended to be called directly by API clients.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DEKRAWebhookPayload'
+      responses:
+        "200":
+          description: Webhook processed (always returns empty body)
+
+  /vehicles/dekra/locations/:
+    get:
+      tags: [DEKRA]
+      summary: Find nearby DEKRA inspection centers
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: lat
+          in: query
+          required: true
+          schema:
+            type: number
+            format: float
+          description: Latitude
+        - name: lng
+          in: query
+          required: true
+          schema:
+            type: number
+            format: float
+          description: Longitude
+        - name: radius
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 50
+          description: Search radius in kilometers
+      responses:
+        "200":
+          description: Nearby inspection locations
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  locations:
+                    type: array
+                    items:
+                      type: object
+                      description: Raw location objects as returned by the DEKRA API
+        "400":
+          description: Missing lat/lng query parameters
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: lat and lng parameters required
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    VehicleId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Vehicle UUID
+
+  schemas:
+    KYCStatus:
+      type: string
+      enum: [pending, in_progress, awaiting_review, approved, rejected, expired]
+
+    KYCDocumentType:
+      type: string
+      enum: [passport, driving_license, national_id, residence_permit]
+
+    KYCInitiateRequest:
+      type: object
+      required: [document_type, document_country]
+      properties:
+        document_type:
+          $ref: '#/components/schemas/KYCDocumentType'
+        document_country:
+          type: string
+          maxLength: 2
+          description: ISO 3166-1 alpha-2 country code
+          example: ZA
+
+    KYCVerification:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        status:
+          $ref: '#/components/schemas/KYCStatus'
+        document_type:
+          $ref: '#/components/schemas/KYCDocumentType'
+        document_country:
+          type: string
+          maxLength: 2
+        document_check_passed:
+          type: boolean
+          nullable: true
+          readOnly: true
+        facial_similarity_passed:
+          type: boolean
+          nullable: true
+          readOnly: true
+        liveness_check_passed:
+          type: boolean
+          nullable: true
+          readOnly: true
+        rejection_reasons:
+          type: array
+          items:
+            type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+          readOnly: true
+
+    OnfidoWebhookPayload:
+      type: object
+      description: Standard Onfido webhook envelope (https://documentation.onfido.com/)
+      properties:
+        payload:
+          type: object
+          properties:
+            resource_type:
+              type: string
+              example: check
+            action:
+              type: string
+              example: check.completed
+            object:
+              type: object
+              properties:
+                id:
+                  type: string
+                  description: Onfido check ID
+                status:
+                  type: string
+                completed_at_iso8601:
+                  type: string
+                  format: date-time
+                href:
+                  type: string
+
+    DriverLicenseStatus:
+      type: string
+      enum: [pending, verified, rejected, expired]
+
+    DriverLicenseCreateRequest:
+      type: object
+      required: [license_number, issuing_country, issue_date, expiry_date, front_image]
+      properties:
+        license_number:
+          type: string
+          maxLength: 50
+        issuing_country:
+          type: string
+          maxLength: 2
+          description: ISO 3166-1 alpha-2 country code
+        issuing_state:
+          type: string
+          maxLength: 100
+        license_classes:
+          type: array
+          items:
+            type: string
+          example: ["B", "C1"]
+        issue_date:
+          type: string
+          format: date
+        expiry_date:
+          type: string
+          format: date
+        front_image:
+          type: string
+          format: binary
+        back_image:
+          type: string
+          format: binary
+
+    DriverLicense:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        license_number:
+          type: string
+          maxLength: 50
+        issuing_country:
+          type: string
+          maxLength: 2
+        issuing_state:
+          type: string
+          maxLength: 100
+        license_classes:
+          type: array
+          items:
+            type: string
+        issue_date:
+          type: string
+          format: date
+        expiry_date:
+          type: string
+          format: date
+        front_image:
+          type: string
+          format: uri
+        back_image:
+          type: string
+          format: uri
+          nullable: true
+        status:
+          $ref: '#/components/schemas/DriverLicenseStatus'
+        verified_at:
+          type: string
+          format: date-time
+          nullable: true
+          readOnly: true
+
+    VehicleType:
+      type: string
+      enum: [economy, comfort, premium, xl, electric]
+
+    DekraVerificationStatus:
+      type: string
+      enum: [pending, in_progress, approved, rejected, expired]
+      description: >
+        pending = Pending Verification, in_progress = Verification In Progress,
+        approved = Approved, rejected = Rejected, expired = Verification Expired
+
+    VehicleCreateRequest:
+      type: object
+      required: [make, model, year, color, license_plate, vehicle_type]
+      properties:
+        make:
+          type: string
+          maxLength: 100
+          example: Toyota
+        model:
+          type: string
+          maxLength: 100
+          example: Camry
+        year:
+          type: integer
+          minimum: 1990
+          maximum: 2030
+        color:
+          type: string
+          maxLength: 50
+        license_plate:
+          type: string
+          maxLength: 20
+          description: Must be unique; automatically upper-cased server-side.
+        vehicle_type:
+          $ref: '#/components/schemas/VehicleType'
+        seats:
+          type: integer
+          minimum: 1
+          maximum: 8
+          default: 4
+        registration_document:
+          type: string
+          format: binary
+        insurance_document:
+          type: string
+          format: binary
+        insurance_expiry:
+          type: string
+          format: date
+
+    VehicleUpdateRequest:
+      allOf:
+        - $ref: '#/components/schemas/VehicleCreateRequest'
+        - type: object
+          properties:
+            photo_front:
+              type: string
+              format: binary
+            photo_back:
+              type: string
+              format: binary
+            photo_side:
+              type: string
+              format: binary
+            photo_interior:
+              type: string
+              format: binary
+            is_active:
+              type: boolean
+            is_primary:
+              type: boolean
+
+    Vehicle:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        make:
+          type: string
+        model:
+          type: string
+        year:
+          type: integer
+        color:
+          type: string
+        license_plate:
+          type: string
+        vehicle_type:
+          $ref: '#/components/schemas/VehicleType'
+        seats:
+          type: integer
+        registration_document:
+          type: string
+          format: uri
+          nullable: true
+        insurance_document:
+          type: string
+          format: uri
+          nullable: true
+        insurance_expiry:
+          type: string
+          format: date
+          nullable: true
+        dekra_status:
+          allOf:
+            - $ref: '#/components/schemas/DekraVerificationStatus'
+          readOnly: true
+        dekra_verified_at:
+          type: string
+          format: date-time
+          nullable: true
+          readOnly: true
+        dekra_expires_at:
+          type: string
+          format: date
+          nullable: true
+          readOnly: true
+        dekra_rejection_reason:
+          type: string
+          readOnly: true
+        photo_front:
+          type: string
+          format: uri
+          nullable: true
+        photo_back:
+          type: string
+          format: uri
+          nullable: true
+        photo_side:
+          type: string
+          format: uri
+          nullable: true
+        photo_interior:
+          type: string
+          format: uri
+          nullable: true
+        is_active:
+          type: boolean
+        is_primary:
+          type: boolean
+        is_roadworthy:
+          type: boolean
+          readOnly: true
+          description: True if dekra_status is approved and dekra_expires_at is in the future.
+        needs_reverification:
+          type: boolean
+          readOnly: true
+          description: True if dekra_expires_at is unset or within 30 days of expiry.
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+
+    InspectionType:
+      type: string
+      enum: [initial, renewal, reinspection]
+
+    InspectionRequest:
+      type: object
+      properties:
+        inspection_type:
+          allOf:
+            - $ref: '#/components/schemas/InspectionType'
+          default: initial
+
+    VehicleInspectionStatus:
+      type: string
+      enum: [requested, scheduled, in_progress, passed, failed, cancelled]
+
+    VehicleInspection:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        inspection_type:
+          $ref: '#/components/schemas/InspectionType'
+        status:
+          $ref: '#/components/schemas/VehicleInspectionStatus'
+        scheduled_date:
+          type: string
+          format: date
+          nullable: true
+        inspection_location:
+          type: string
+        inspected_at:
+          type: string
+          format: date-time
+          nullable: true
+        passed:
+          type: boolean
+          nullable: true
+        failure_reasons:
+          type: array
+          items:
+            type: string
+        certificate_number:
+          type: string
+        certificate_valid_until:
+          type: string
+          format: date
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+      readOnly: true
+
+    DEKRAWebhookPayload:
+      type: object
+      required: [event, data]
+      properties:
+        event:
+          type: string
+          enum: [inspection.scheduled, inspection.completed, inspection.failed]
+        data:
+          type: object
+          required: [request_id]
+          properties:
+            request_id:
+              type: string
+              description: Matches VehicleInspection.dekra_request_id
+            inspection_id:
+              type: string
+              description: Used on inspection.scheduled
+            scheduled_date:
+              type: string
+              format: date
+              description: Used on inspection.scheduled
+            location:
+              type: string
+              description: Used on inspection.scheduled
+            result:
+              type: string
+              enum: [pass, fail]
+              description: Used on inspection.completed
+            report:
+              type: object
+              description: Used on inspection.completed (stored verbatim as inspection_report)
+            certificate_number:
+              type: string
+              description: Used on inspection.completed when result=pass
+            valid_until:
+              type: string
+              format: date
+              description: Used on inspection.completed when result=pass
+            certificate_url:
+              type: string
+              format: uri
+              description: Used on inspection.completed when result=pass
+            failure_reasons:
+              type: array
+              items:
+                type: string
+              description: Used on inspection.completed when result=fail
+            reason:
+              type: string
+              description: Used on inspection.failed
+
+    ValidationError:
+      type: object
+      additionalProperties:
+        type: array
+        items:
+          type: string
+      description: >-
+        DRF-style field error map, e.g.
+        {"license_plate": ["A vehicle with this license plate already exists."]}

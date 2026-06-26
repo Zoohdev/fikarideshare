@@ -1,12 +1,12 @@
 import React, { memo, useEffect, useRef } from "react";
-import { Animated, View, StyleSheet } from "react-native";
+import { Animated, View, Image, StyleSheet } from "react-native";
 import { Marker } from "react-native-maps";
-import VehicleIcon from "./VehicleIcon";
 
-// Replaces the old flat car-marker.png with the per-tier VehicleIcon
-// silhouette, plus a soft pulsing ring (the prototype's fikaCarPulse
-// keyframes) so the marker doesn't look static between GPS pings.
-const AnimatedDriverMarker = ({ coordinate, heading = 0, vehicleType = "economy" }) => {
+// Ported from the teammate's map update: a single flat car.png image
+// instead of the per-tier VehicleIcon silhouette, plus a soft pulsing ring
+// (the prototype's fikaCarPulse keyframes) so the marker doesn't look
+// static between GPS pings.
+const AnimatedDriverMarker = ({ coordinate, heading = 0 }) => {
   const progress = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -32,7 +32,7 @@ const AnimatedDriverMarker = ({ coordinate, heading = 0, vehicleType = "economy"
       <View style={styles.container}>
         <Animated.View style={[styles.pulse, { transform: [{ scale }], opacity }]} />
         <View style={{ transform: [{ rotate: `${heading}deg` }] }}>
-          <VehicleIcon type={vehicleType} color="#0A2E24" size={46} />
+          <Image source={require("../../../assets/images/car.png")} style={styles.carImage} resizeMode="contain" />
         </View>
       </View>
     </Marker.Animated>
@@ -58,5 +58,9 @@ const styles = StyleSheet.create({
     height: 44,
     borderRadius: 22,
     backgroundColor: "rgba(91,201,160,0.5)",
+  },
+  carImage: {
+    width: 42,
+    height: 42,
   },
 });

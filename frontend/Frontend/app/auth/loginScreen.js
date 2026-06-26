@@ -23,6 +23,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import MaterialIcons from "react-native-vector-icons/MaterialIcons";
 import { registerForPushNotificationsAsync } from "../../services/pushNotifications";
+import { getPostAuthRoute } from "../../services/postAuthRoute";
 
 // Matches the "FIKA Login" claude.ai/design prototype: teal header with a
 // floating logo + gold tagline, premium gold-focus inputs, and the
@@ -74,9 +75,7 @@ const LoginScreen = () => {
       setProfileData(user);
       registerForPushNotificationsAsync();
 
-      router.replace(
-        user.is_driver ? "/(driverTabs)/home/homeScreen" : "/(tabs)/home/homeScreen"
-      );
+      router.replace(await getPostAuthRoute(user));
     } catch (err) {
       Alert.alert(
         "Error",

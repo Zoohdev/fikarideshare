@@ -322,7 +322,14 @@ class DriverLocationService:
                     'eta_seconds': eta_info['duration_seconds'] if eta_info else None,
                     'vehicle': self._get_driver_vehicle(driver),
                 })
-           
+
+            # Re-rank by actual road ETA where available - the queryset
+            # above is already straight-line-nearest-first, but that can
+            # disagree with real driving time (one-way streets, traffic).
+            # Callers (e.g. ride matching) take results[0] as "the best
+            # driver", so this ordering is the one that actually matters.
+            results.sort(key=lambda r: r['eta_seconds'] if r['eta_seconds'] is not None else r['distance_meters'] if r['distance_meters'] is not None else float('inf'))
+
             return results
        
         return []

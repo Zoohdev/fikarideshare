@@ -308,6 +308,11 @@ class RideParticipant(models.Model):
         null=True,
         blank=True
     )
+    dropoff_code = models.CharField(
+        max_length=4,
+        null=True,
+        blank=True
+    )
     joined_at = models.DateTimeField(
         auto_now_add=True
     )
@@ -340,6 +345,17 @@ class RideParticipant(models.Model):
             while code in existing_codes:
                 code = str(random.randint(1000, 9999))
             self.pickup_code = code
+        if not self.dropoff_code:
+            import random
+            existing_codes = set(
+                RideParticipant.objects.filter(ride_id=self.ride_id)
+                .exclude(pk=self.pk)
+                .values_list('dropoff_code', flat=True)
+            )
+            code = str(random.randint(1000, 9999))
+            while code in existing_codes:
+                code = str(random.randint(1000, 9999))
+            self.dropoff_code = code
         super().save(*args, **kwargs)
 
 

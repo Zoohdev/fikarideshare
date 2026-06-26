@@ -90,9 +90,19 @@ export default function FareSummaryScreen() {
                 {isDriver || paid ? (
                     <TouchableOpacity
                         style={styles.payButton}
-                        onPress={() => router.replace(isDriver ? '/(driverTabs)/home/homeScreen' : '/(tabs)/home/homeScreen')}
+                        onPress={() => {
+                            if (!isDriver && paid) {
+                                // Riders rate the trip right after paying -
+                                // feedbackScreen has no payment step of its
+                                // own, so this was the only place that step
+                                // could happen.
+                                router.replace({ pathname: '/feedback/feedbackScreen', params: { rideId } });
+                            } else {
+                                router.replace(isDriver ? '/(driverTabs)/home/homeScreen' : '/(tabs)/home/homeScreen');
+                            }
+                        }}
                     >
-                        <Text style={styles.payButtonText}>{paid ? "Done" : "Back to home"}</Text>
+                        <Text style={styles.payButtonText}>{paid ? "Rate your trip" : "Back to home"}</Text>
                         <Ionicons name="arrow-forward" size={20} color="#fff" style={{marginLeft: 10}} />
                     </TouchableOpacity>
                 ) : (

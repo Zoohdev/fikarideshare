@@ -116,6 +116,8 @@ class RideSerializer(serializers.ModelSerializer):
     dropoff_location = serializers.SerializerMethodField()
     participants = serializers.SerializerMethodField()
     rider_pickup_status = serializers.SerializerMethodField()
+    my_pickup_code = serializers.SerializerMethodField()
+    my_dropoff_code = serializers.SerializerMethodField()
 
     class Meta:
         model = Ride
@@ -130,9 +132,31 @@ class RideSerializer(serializers.ModelSerializer):
             'scheduled_pickup_time', 'requested_at', 'driver_assigned_at',
             'driver_arrived_at', 'started_at', 'completed_at',
             'cancelled_at', 'cancellation_reason','participants','verification_code',
-            'rider_pickup_status',
+            'rider_pickup_status', 'my_pickup_code', 'my_dropoff_code',
         ]
         read_only_fields = fields
+
+    def _my_participant(self, obj):
+        # `verification_code` above is always the organizer's code, which is
+        # wrong for a pool-joiner reading their own ride detail response -
+        # they'd see the primary rider's code, not their own. This is the
+        # one place that resolves "my code" correctly for whoever is asking,
+        # rider or pool participant alike. Not cached on self - this
+        # serializer is reused across items when called with many=True, so
+        # a per-instance cache would leak one object's participant onto the
+        # next.
+        request = self.context.get('request')
+        if not request or not request.user.is_authenticated:
+            return None
+        return obj.participants.filter(user=request.user).first()
+
+    def get_my_pickup_code(self, obj):
+        participant = self._my_participant(obj)
+        return participant.pickup_code if participant else None
+
+    def get_my_dropoff_code(self, obj):
+        participant = self._my_participant(obj)
+        return participant.dropoff_code if participant else None
    
     def get_pickup_location(self, obj):
         if obj.pickup_location:

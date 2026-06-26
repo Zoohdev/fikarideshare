@@ -2,20 +2,42 @@ import { StyleSheet, Text, View, Image } from "react-native";
 import React, { useEffect } from "react";
 import { Colors, Fonts, Sizes, screenWidth } from "../constants/styles";
 import MyStatusBar from "../components/myStatusBar";
-import { useNavigation } from "expo-router";
+import { useRouter } from "expo-router";
+import * as SecureStore from "expo-secure-store";
+import api from "../services/api";
+import { getPostAuthRoute } from "../services/postAuthRoute";
+import { useProfile } from "./context/ProfileContext";
 
 const SplashScreen = () => {
-
-  const navigation = useNavigation();
+  const router = useRouter();
+  const { setProfileData } = useProfile();
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      navigation.push("onboarding/onboardingScreen");
-    }, 2000);
-    return () => {
-      clearTimeout(timer);
-    }
-  }, [])
+    const resume = async () => {
+      const token = await SecureStore.getItemAsync("userToken");
+      if (!token) {
+        router.replace("/onboarding/onboardingScreen");
+        return;
+      }
+
+      let profile;
+      try {
+        const profileRes = await api.get("/users/profile/");
+        profile = profileRes.data;
+        setProfileData(profile);
+      } catch (err) {
+        // Interceptor already tried refreshing the token - if we're still
+        // here, the session is genuinely gone.
+        router.replace("/onboarding/onboardingScreen");
+        return;
+      }
+
+      router.replace(await getPostAuthRoute(profile));
+    };
+
+    const timer = setTimeout(resume, 1200);
+    return () => clearTimeout(timer);
+  }, []);
 
   return (
     <View style={{ flex: 1, backgroundColor: Colors.primaryColor }}>

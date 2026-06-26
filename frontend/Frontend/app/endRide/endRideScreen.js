@@ -22,7 +22,7 @@ import {
 } from "../../constants/styles";
 import MapViewDirections from "react-native-maps-directions";
 import { Key } from "../../constants/key";
-import { MAP_THEME, TRIP_OVERVIEW_DELTA } from "../../constants/mapTheme";
+import { MAP_THEME, TRIP_OVERVIEW_DELTA, GOOGLE_MAP_ID } from "../../constants/mapTheme";
 import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
 import MaterialIcons from "react-native-vector-icons/MaterialIcons";
 import * as Animatable from "react-native-animatable";
@@ -408,6 +408,7 @@ function rideInfoSheet() {
     longitudeDelta: TRIP_OVERVIEW_DELTA,
           }}
           style={{ flex: 1 }}
+          mapId={GOOGLE_MAP_ID}
           customMapStyle={MAP_THEME}
           loadingEnabled
           loadingIndicatorColor={Colors.primaryColor}

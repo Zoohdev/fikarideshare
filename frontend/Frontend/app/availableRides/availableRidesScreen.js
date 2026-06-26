@@ -26,7 +26,7 @@ import api from "../../services/api";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Location from "expo-location";
 import { Key } from "../../constants/key";
-import { MAP_THEME, LIVE_TRACKING_DELTA, ROUTE_LINE_COLOR, ROUTE_GLOW_COLOR, ROUTE_HIGHLIGHT_COLOR } from "../../constants/mapTheme";
+import { MAP_THEME, LIVE_TRACKING_DELTA, ROUTE_LINE_COLOR, ROUTE_GLOW_COLOR, ROUTE_HIGHLIGHT_COLOR, GOOGLE_MAP_ID } from "../../constants/mapTheme";
 import { API_BASE_URL, WS_BASE_URL } from "../../constants/apiConfig";
 import { VEHICLE_TYPES } from "../../constants/vehicleTypes";
 
@@ -66,6 +66,7 @@ const MapSection = ({ currentLocation, destinationCoords, showMap, mapRef }) => 
         ref={mapRef}
         provider={PROVIDER_GOOGLE}
         style={styles.webview}
+        mapId={GOOGLE_MAP_ID}
         customMapStyle={customMapTheme}
         initialRegion={{
           latitude: currentLocation.latitude,
@@ -568,6 +569,18 @@ useEffect(() => {
 
   // Process Cancellation with Backend
   const cancelRide = async (reason, note) => {
+    if (!currentTripId) {
+      // The "waiting" UI (and this button) appears the instant the
+      // request is fired, but POST /rides/trips/ hasn't resolved yet at
+      // that point - currentTripId is still null for a brief window.
+      // Cancelling then used to call /rides/trips/null/cancel/, which
+      // fails server-side while the original request keeps going and
+      // succeeds anyway, leaving a real active ride the user thought
+      // they'd cancelled.
+      Alert.alert('Please wait', "Still sending your request - try cancelling again in a moment.");
+      setShowCancelModal(false);
+      return;
+    }
     setIsCancelling(true);
     try {
       // Endpoint mapped to the cancel action in RideViewSet
@@ -630,9 +643,9 @@ useEffect(() => {
           )}
 
           {bookingStatus === 'waiting' && (
-            <TouchableOpacity 
-              style={styles.cancelWaitingButton}
-              onPress={() => setShowCancelModal(true)}
+            <TouchableOpacity
+              style={[styles.cancelWaitingButton, !currentTripId && { opacity: 0.5 }]}
+              onPress={() => currentTripId && setShowCancelModal(true)}
             >
               <Text style={styles.cancelWaitingText}>Cancel Request</Text>
             </TouchableOpacity>
