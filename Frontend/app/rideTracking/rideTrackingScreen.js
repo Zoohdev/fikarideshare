@@ -6,14 +6,13 @@ import { Audio } from 'expo-av';
 import * as Location from 'expo-location';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
-import { Alert, FlatList, Linking, Modal, SafeAreaView, ScrollView, Share, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, FlatList, Image, Linking, Modal, SafeAreaView, ScrollView, Share, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
 import MapViewDirections from 'react-native-maps-directions';
 import { WS_SOS_BASE_URL, WS_TRACKING_URL } from '../../constants/apiConfig';
 import { Key } from '../../constants/key';
 import { LIVE_TRACKING_DELTA, MAP_THEME, ROUTE_LINE_COLOR } from '../../constants/mapTheme';
 import api from '../../services/api';
-import AnimatedDriverMarker from './components/AnimatedDriverMarker';
 
 
 
@@ -70,10 +69,13 @@ const routeOriginRef = useRef(null);
 const routeFitDone = useRef(false);
 const [driverUnread, setDriverUnread] = useState({});
 const [routeOrigin,setRouteOrigin] =useState(null);
+const [currentUserId, setCurrentUserId] = useState(null);
 const [poolRequestVisible,
   setPoolRequestVisible]
   = useState(false);
-
+  const [ride, setRide] = useState(null);
+  const pickupAddress = ride?.pickup_address || params?.pickupAddress || "Fetching pickup address...";
+  const dropoffAddress = ride?.dropoff_address || params?.dropoffAddress || "Fetching dropoff address...";
 const [poolRequest,
   setPoolRequest]
   = useState(null);
@@ -101,6 +103,21 @@ const [poolRequest,
     loadUnreadStatus();
   }, []);
 
+
+  useEffect(() => {
+    const loadUserId = async () => {
+      try {
+        const storedId = await AsyncStorage.getItem('userId'); // Change 'userId' to your actual key
+        if (storedId) {
+          setCurrentUserId(storedId);
+        }
+      } catch (error) {
+        console.error("Error loading user ID:", error);
+      }
+    };
+  
+    loadUserId();
+  }, []);
 
   useEffect(() => {
     if (!routeOrigin && driverLocation) {
@@ -182,6 +199,27 @@ const [poolRequest,
 
   // Copy this block directly into your side effects layout section
 
+  // FIX 3: Add a secure fallback listener to redirect if the socket message drops
+  useEffect(() => {
+    if (!rideData || !userId || role !== 'rider') return;
+
+    // Check individual participant status for shared/pool rides
+    const currentUserParticipant = rideData.participants?.find(p => String(p.user.id) === String(userId));
+    const isUserPickedUp = currentUserParticipant?.status === 'picked_up' || currentUserParticipant?.status === 'in_progress';
+
+    // If main ride is tracking or this specific rider is picked up, advance the screen
+    if (rideData.status === 'in_progress' || isUserPickedUp) {
+      router.replace({
+        pathname: "/rideTracking/riderInTripScreen",
+        params: {
+          rideId: rideData.id,
+          role: "rider"
+        }
+      });
+    }
+  }, [rideData, userId, role]);
+
+
 
   const fetchRideDetails = async () => {
     try {
@@ -191,7 +229,20 @@ const [poolRequest,
         "FULL RIDE DATA",
         JSON.stringify(res.data, null, 2)
       );
+      
       const currentUserId = await AsyncStorage.getItem('userId');
+      if (role === 'rider') {
+        const myParticipantData = res.data.participants?.find(p => String(p.user.id) === String(currentUserId));
+        const isAlreadyOnboard = res.data.rider_pickup_status === 'picked_up' || myParticipantData?.status === 'picked_up';
+        
+        if (isAlreadyOnboard) {
+          router.replace({
+            pathname: "/rideTracking/riderInTripScreen",
+            params: { rideId: rideId, role: "rider" }
+          });
+          return;
+        }
+      }
       if (String(res.data.rider.id) === String(currentUserId)) {
         setVerificationCode(res.data.verification_code);
       } else {
@@ -265,7 +316,7 @@ const locLng =
       `${WS_BASE}?user_id=${uid}`
     );
 
-    wsRef.current = new WebSocket(`${WS_BASE}?user_id=${uid}`);
+    // wsRef.current = new WebSocket(`${WS_BASE}?user_id=${uid}`);
     wsRef.current.onopen = () => {
       console.log(
         "SENDING JOIN_RIDE",
@@ -298,8 +349,8 @@ const locLng =
         );
 
         if (!parsedMessage || !parsedMessage.type) return;
-        const data = parsedMessage.data || {};
-    
+        // const data = parsedMessage.data || {};
+        const data = parsedMessage.data || parsedMessage || {};
         switch (parsedMessage.type) {
           case 'driver_location':
 
@@ -354,13 +405,13 @@ const locLng =
 
             console.log(
               JSON.stringify(
-                parsedMessage,
+                data,
                 null,
                 2
               )
             );
           
-            setPoolRequest(parsedMessage);
+            setPoolRequest(data);
 
             setPoolRequestVisible(true);
 
@@ -428,24 +479,24 @@ const locLng =
               data.status
             );
 
-            const verifiedUserId =
-  data?.verified_user_id;
+            const verifiedUserId = data?.verified_user_id || data?.user_id;
+          const isMyVerification = String(verifiedUserId) === String(uid);
+          const shouldRedirectRider = data.status === "in_progress" || 
+                                       data.event === "passenger_joined_trip" || 
+                                       data.event === "individual_picked_up";
 
 if (
-  data.status === "in_progress" &&
-  verifiedUserId === uid
-) {
-
-  router.replace({
-    pathname:
-      "/rideTracking/riderInTripScreen",
-    params: {
-      rideId: data.ride_id,
-      role: "rider"
-    }
-  });
-
-}
+              (data.status === "in_progress" || eventType === "passenger_picked_up" || eventType === "individual_picked_up") &&
+              (!verifiedUserId || String(verifiedUserId) === String(uid))
+            ) {
+              router.replace({
+                pathname: "/rideTracking/riderInTripScreen",
+                params: {
+                  rideId: data.ride_id || parsedMessage.ride_id || rideId,
+                  role: "rider"
+                }
+              });
+            }
 
             if (data.status === 'completed' || parsedMessage.status === 'completed') {
               wsRef.current?.close();
@@ -946,8 +997,8 @@ async () => {
       <MapView 
         ref={mapRef} 
         style={styles.webview}
-        // customMapStyle={customMapTheme}
-        mapId="683bbaed124217965ad088fb"
+        customMapStyle={customMapTheme}
+        // mapId="683bbaed124217965ad088fb"
         initialRegion={{
           latitude: initialLat,
           longitude: initialLng,
@@ -959,14 +1010,29 @@ async () => {
             A. DRIVER CAR MARKER (Visible to Both)
         ========================================= */}
         {hasValidDriver && (
-          <AnimatedDriverMarker
+          <Marker
             coordinate={{
               latitude: Number(driverLocation.latitude),
               longitude: Number(driverLocation.longitude),
             }}
-            heading={driverLocation.heading || 0}
+            flat={true} // Keeps the marker flat on the map for realistic rotation
+          // rotation={heading} // Rotates the marker based on movement direction
+          anchor={{ x: 0.5, y: 1 }}
+        >
+          {/* Replace this path with your actual car asset path */}
+          <Image 
+            source={require("../../assets/images/car.png")} 
+            style={{ width: 42, height: 42, resizeMode: 'contain' }}
           />
+         
+        </Marker>
         )}
+        {/* <Marker
+            coordinate={destinationCoords}
+            image={require("../../../assets/images/destination.png")}
+            anchor={{ x: 0.5, y: 0.8 }}
+            flat={true}
+          /> */}
 
         {/* =========================================
             B. RIDER PICKUP PIN (Visible to Rider)
@@ -1287,7 +1353,7 @@ console.log("Driver:", driverLocation);
             </Text>
 
             <Text style={styles.addressValue}>
-              {poolRequest?.rider_name}
+            {poolRequest?.rider_name || poolRequest?.user?.full_name || poolRequest?.user?.first_name || "Shared Pool Rider"}
             </Text>
           </View>
 
@@ -1302,8 +1368,8 @@ console.log("Driver:", driverLocation);
             </Text>
 
             <Text style={styles.addressValue}>
-              {poolRequest?.pickup_address ||
-                "Pickup unavailable"}
+            {rideData?.pickup_address || "Unmapped"}
+            {/* {poolRequest?.pickup_address || poolRequest?.pickup_location?.address || "Pickup address unmapped"} */}
             </Text>
           </View>
 
@@ -1318,8 +1384,8 @@ console.log("Driver:", driverLocation);
             </Text>
 
             <Text style={styles.addressValue}>
-              {poolRequest?.dropoff_address ||
-                "Dropoff unavailable"}
+            {rideData?.dropoff_address || "Unmapped"}
+            {/* {poolRequest?.dropoff_address || poolRequest?.dropoff_location?.address || "Dropoff address unmapped"} */}
             </Text>
           </View>
 
@@ -1334,7 +1400,7 @@ console.log("Driver:", driverLocation);
             </Text>
 
             <Text style={styles.addressValue}>
-              {poolRequest?.seats}
+            {poolRequest?.seats || "1"}
             </Text>
           </View>
 
@@ -1556,8 +1622,16 @@ console.log("Driver:", driverLocation);
   // ==========================================
   const vehicleData = rideData?.vehicle || {};
   const driverData = rideData?.driver || {};
-  const pickupAddress = rideData?.pickup_address || "Loading...";
-  const dropoffAddress = rideData?.dropoff_address || "Loading...";
+  const isPrimaryRider = rideData?.rider?.id === currentUserId;
+const participantData = rideData?.participants?.find(p => p.user?.id === currentUserId);
+
+const displayPickup = role === 'driver' 
+  ? rideData?.pickup_address 
+  : (isPrimaryRider ? rideData?.pickup_address : (participantData?.pickup_address || rideData?.pickup_address));
+
+const displayDropoff = role === 'driver' 
+  ? rideData?.dropoff_address 
+  : (isPrimaryRider ? rideData?.dropoff_address : (participantData?.dropoff_address || rideData?.dropoff_address));
   const fareAmount = rideData?.estimated_fare || 0;
   const currentTripStatus = rideData?.status || "Locating your ride...";
   const rideServerObject = {

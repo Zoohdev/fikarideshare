@@ -1,33 +1,34 @@
 
 
+import FontAwesome from '@expo/vector-icons/FontAwesome';
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Location from "expo-location";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import React, { useEffect, useRef, useState } from "react";
 import {
-  StyleSheet,
-  Text,
-  View,
-  FlatList,
-  TouchableOpacity,
-  SafeAreaView,
-  StatusBar,
-  Modal,
   ActivityIndicator,
   Alert,
   Animated,
+  FlatList,
+  Image,
+  Modal,
+  SafeAreaView,
+  StatusBar,
+  StyleSheet,
+  Text,
   TextInput,
+  TouchableOpacity,
+  View
 } from "react-native";
-import FontAwesome from '@expo/vector-icons/FontAwesome';
-import React, { useState, useRef, useEffect } from "react";
-import MaterialIcons from "react-native-vector-icons/MaterialIcons";
-import Ionicons from "react-native-vector-icons/Ionicons";
-import { useNavigation, useLocalSearchParams, useRouter } from "expo-router";
-import { Colors, Fonts, Sizes, CommonStyles } from "../../constants/styles";
-import MapView, { PROVIDER_GOOGLE, Marker } from 'react-native-maps';
+import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import MapViewDirections from 'react-native-maps-directions';
-import api from "../../services/api";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as Location from "expo-location";
-import { Key } from "../../constants/key";
-import { MAP_THEME, LIVE_TRACKING_DELTA, ROUTE_LINE_COLOR } from "../../constants/mapTheme";
+import Ionicons from "react-native-vector-icons/Ionicons";
+import MaterialIcons from "react-native-vector-icons/MaterialIcons";
 import { API_BASE_URL, WS_BASE_URL } from "../../constants/apiConfig";
+import { Key } from "../../constants/key";
+import { LIVE_TRACKING_DELTA, MAP_THEME } from "../../constants/mapTheme";
+import { Colors, Fonts, Sizes } from "../../constants/styles";
+import api from "../../services/api";
 
 const API_BASE = `${API_BASE_URL}/rides/trips/`;
 const WS_BASE = `${WS_BASE_URL}/ws/tracking/`;
@@ -54,9 +55,27 @@ const paymentMethods = [
   { id: "3", name: "Credit/Debit Card", icon: "credit-card", type: "card",  },
 ];
 
+
+const calculateBearing = (startLat, startLng, endLat, endLng) => {
+  const fromLat = (startLat * Math.PI) / 180;
+  const fromLng = (startLng * Math.PI) / 180;
+  const toLat = (endLat * Math.PI) / 180;
+  const toLng = (endLng * Math.PI) / 180;
+
+  const dLng = toLng - fromLng;
+
+  const y = Math.sin(dLng) * Math.cos(toLat);
+  const x = Math.cos(fromLat) * Math.sin(toLat) -
+            Math.sin(fromLat) * Math.cos(toLat) * Math.cos(dLng);
+
+  let bearing = Math.atan2(y, x);
+  bearing = (bearing * 180) / Math.PI;
+  return (bearing + 360) % 360;
+};
+
 const customMapTheme = MAP_THEME;
 
-const MapSection = ({ currentLocation, destinationCoords, showMap, mapRef }) => {
+const MapSection = ({ currentLocation, destinationCoords, showMap, mapRef ,heading}) => {
   if (!showMap || !currentLocation || !currentLocation.latitude) return null;
   return (
     <View style={{ flex: 1 }}>
@@ -72,11 +91,30 @@ const MapSection = ({ currentLocation, destinationCoords, showMap, mapRef }) => 
           longitudeDelta: LIVE_TRACKING_DELTA,
         }}
       >
-        <Marker coordinate={currentLocation} anchor={{ x: 0.5, y: 1 }}>
+        {/* <Marker coordinate={currentLocation} anchor={{ x: 0.5, y: 1 }}>
           <View style={styles.simpleMarker}>
             <Ionicons name="person" size={18} color="white" />
           </View>
+        </Marker> */}
+
+<Marker
+          coordinate={{
+            latitude: currentLocation.latitude,
+            longitude: currentLocation.longitude,
+          }}
+          // anchor={{ x: 0.5, y: 0.5 }} // Center anchor is best for rotation
+          flat={true} // Keeps the marker flat on the map for realistic rotation
+          rotation={heading} // Rotates the marker based on movement direction
+          anchor={{ x: 0.5, y: 1 }}
+        >
+          {/* Replace this path with your actual car asset path */}
+          <Image 
+            source={require("../../assets/images/car.png")} 
+            style={{ width: 42, height: 42, resizeMode: 'contain' }}
+          />
+         
         </Marker>
+
 
         {destinationCoords && destinationCoords.latitude !== 0 && (
           <Marker
@@ -93,11 +131,11 @@ const MapSection = ({ currentLocation, destinationCoords, showMap, mapRef }) => 
             destination={destinationCoords}
             apikey={GOOGLE_MAPS_API_KEY}
             strokeWidth={5}
-            strokeColor={ROUTE_LINE_COLOR}
+            strokeColor='#1A202C'
             optimizeWaypoints={true}
             onReady={(result) => {
               mapRef.current.fitToCoordinates(result.coordinates, {
-                edgePadding: { top: 100, right: 50, bottom: 10, left: 59 },
+                edgePadding: { top: 100, right: 50, bottom: 300, left: 59 },
                 animated: true,
               });
             }}
@@ -242,7 +280,7 @@ if (response.data?.joined_existing_pool) {
     response.data
   );
 
-  setIsBooking(false);
+  // setIsBooking(false);
 
   setBookingStatus(
     "waiting_pool_approval"
@@ -252,20 +290,39 @@ if (response.data?.joined_existing_pool) {
     response.data.id
   );
 
+  setRideId(response.data.id);
+  connectRiderWebSocket(response.data.id, currentLocation, destinationCoord);
+
   return;
 }
 
       if (response.status === 201 || response.data) {
         // Extract ride ID safely
         const rideId = response.data.ride_id || response.data.id;
-        setRideId(response.data.ride_id || response.data.id);
+        setRideId(rideId);
         
         
         if (rideId) {
           setCurrentTripId(rideId); 
+          // connectRiderWebSocket(rideId, currentLocation, destinationCoord);
           console.log("Trip ID successfully set to:", rideId);
           await AsyncStorage.setItem('currentTripId', String(rideId));
-
+          if (response.data.status === 'driver_assigned' || response.data.status === 'driver_arriving' || response.data.status === 'in_progress') {
+            setPendingNavigation({
+              pathname: "/rideTracking/rideTrackingScreen",
+              params: {
+                rideId,
+                role: "rider",
+                ride_type: rideType,
+                verification_code: response.data.verification_code || "",
+                pickupLat: currentLocation.latitude,
+                pickupLng: currentLocation.longitude,
+                dropoffLat: destinationCoord.latitude,
+                dropoffLng: destinationCoord.longitude,
+              }
+            });
+            return; // Skip waiting for socket
+         }
           // Launch the tracking websocket with the validated variables
           connectRiderWebSocket(rideId, currentLocation, destinationCoord);
         } else {
@@ -368,7 +425,7 @@ if (response.data?.joined_existing_pool) {
 
           if (
             data.data?.event ===
-            "pool_request_accepted"
+            "passenger_joined_pool"
           ) {
           
             console.log(
@@ -376,58 +433,34 @@ if (response.data?.joined_existing_pool) {
             );
           
             router.replace({
-              pathname:
-                "/rideTracking/rideTrackingScreen",
+              pathname: "/rideTracking/rideTrackingScreen",
               params: {
-                rideId:
-                  data.ride_id,
+                rideId: data.ride_id,
                 role: "rider",
-                ride_type: "shared"
+                ride_type: "shared",
+                pickupLat: data.data?.pickup_lat || currentLocation.latitude,
+      pickupLng: data.data?.pickup_lng || currentLocation.longitude,
+      dropoffLat: data.data?.dropoff_lat || destinationCoord.latitude,
+      dropoffLng: data.data?.dropoff_lng || destinationCoord.longitude
               }
             });
           
             return;
           }
-          if (
-            data.status === "driver_assigned" ||
-            data.status === "driver_arriving"
-          ) {
-          
-            console.log(
-              "Driver Assigned",
-              data
-            );
-          
-            router.replace({
-              pathname:
-                "/rideTracking/rideTrackingScreen",
-          
-              params: {
-                rideId,
-          
-                role: "rider",
-          
-                ride_type: rideType,
-          
-                verification_code:
-                  data.verification_code || "",
-          
-                pickupLat:
-                  currentLocation.latitude,
-          
-                pickupLng:
-                  currentLocation.longitude,
-          
-                dropoffLat:
-                  destinationCoord.latitude,
-          
-                dropoffLng:
-                  destinationCoord.longitude,
-              },
-            });
-          
-            return;
-          }
+          setPendingNavigation({
+            pathname: "/rideTracking/rideTrackingScreen",
+            params: {
+              rideId,
+              role: "rider",
+              ride_type: rideType,
+              verification_code: data.verification_code || "",
+              pickupLat: currentLocation.latitude,
+              pickupLng: currentLocation.longitude,
+              dropoffLat: destinationCoord.latitude,
+              dropoffLng: destinationCoord.longitude,
+            },
+          });
+          return;
         }
       } catch (err) {
         console.error("Failed to decode incoming WebSocket frame:", err);
@@ -438,6 +471,42 @@ if (response.data?.joined_existing_pool) {
     riderSocketRef.current=socket;
   });
 };
+
+
+useEffect(() => {
+  if (!rideId) return;
+
+  const checkStatus = async () => {
+    try {
+      const response = await api.get(`/rides/trips/${rideId}/`);
+      const ride = response.data;
+
+      if (ride.status === 'driver_assigned' || ride.status === 'accepted' || ride.status === 'started') {
+        setIsBooking(false); // ✅ FIX: Use the correct state setter from your file
+        
+        // Redirect to the correct nested route
+        router.replace({
+          pathname: "/rideTracking/rideTrackingScreen", // ✅ FIX: Added missing /rideTracking/ path
+          params: {
+            rideId: ride.id,
+            role: "rider",
+            ride_type: rideType,
+            pickupLat: currentLocation.latitude,
+            pickupLng: currentLocation.longitude,
+            dropoffLat: destinationCoord.latitude,
+            dropoffLng: destinationCoord.longitude,
+          }
+        });
+      }
+    } catch (error) {
+      console.error("Error checking ride status:", error);
+    }
+  };
+
+  const interval = setInterval(checkStatus, 3000);
+  return () => clearInterval(interval);
+}, [rideId]);
+
 
 useEffect(() => {
   if (pendingNavigation) {

@@ -1,29 +1,27 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  TouchableOpacity, 
-  Alert, 
-  Linking, 
-  SafeAreaView, 
-  ScrollView, 
+import Ionicons from '@expo/vector-icons/Ionicons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Audio } from 'expo-av';
+import * as Location from 'expo-location';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useEffect, useRef, useState } from 'react';
+import {
   ActivityIndicator,
-  Image ,
-  Share
+  Alert,
+  Linking,
+  SafeAreaView,
+  ScrollView,
+  Share,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
 import MapViewDirections from 'react-native-maps-directions';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import Ionicons from '@expo/vector-icons/Ionicons';
-import * as Location from 'expo-location';
-import { Audio } from 'expo-av';
-import api from '../../services/api';
+import { WS_SOS_BASE_URL, WS_TRACKING_URL } from '../../constants/apiConfig';
 import { Key } from '../../constants/key';
-import { MAP_THEME, LIVE_TRACKING_DELTA, ROUTE_LINE_COLOR } from '../../constants/mapTheme';
-import { WS_TRACKING_URL, WS_SOS_BASE_URL } from '../../constants/apiConfig';
-import AnimatedDriverMarker from './components/AnimatedDriverMarker';
+import { LIVE_TRACKING_DELTA, MAP_THEME, ROUTE_LINE_COLOR } from '../../constants/mapTheme';
+import api from '../../services/api';
 
 const GOOGLE_MAPS_APIKEY = Key.apiKey;
 const WS_BASE = WS_TRACKING_URL;
@@ -305,10 +303,20 @@ export default function RiderInTripScreen() {
         >
           {/* Driver live vehicle marker - Increased Size */}
           {driverLocation && (
-            <AnimatedDriverMarker
+            <Marker
               coordinate={driverLocation}
-              heading={driverLocation.heading || 0}
-            />
+              // heading={driverLocation.heading || 0}
+              flat={true} // Keeps the marker flat on the map for realistic rotation
+          // rotation={heading} // Rotates the marker based on movement direction
+          anchor={{ x: 0.5, y: 1 }}
+        >
+          {/* Replace this path with your actual car asset path */}
+          <Image 
+            source={require("../../assets/images/car.png")} 
+            style={{ width: 42, height: 42, resizeMode: 'contain' }}
+          />
+         
+        </Marker>
           )}
 
           {/* Dynamic Multiple Pickups and Dropoffs Mapping */}

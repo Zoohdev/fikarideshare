@@ -75,7 +75,7 @@ export default function FeedbackScreen() {
         "Your feedback has been submitted."
       );
 
-      router.replace("/(tabs)/homeScreen");
+      router.replace("/(tabs)/home/homeScreen");
     } catch (error) {
       console.error("Error submitting feedback:", error);
       Alert.alert(
