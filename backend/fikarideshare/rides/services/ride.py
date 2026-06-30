@@ -31,6 +31,112 @@ def _bearing_difference(bearing_a: float, bearing_b: float) -> float:
     return min(diff, 360 - diff)
 
 
+# ---------------------------------------------------------------------------
+# Shared per-stop distance/ETA helper.
+#
+# Before this, three separate places independently estimated distance/ETA:
+#   - consumers.calculate_eta            (geodesic straight-line, flat 30km/h)
+#   - consumers.calculate_per_rider_etas (same, duplicated)
+#   - compute_optimized_route's sort key (geodesic, used only for ordering,
+#     the actual meters value was discarded after sorting)
+# None of them returned real road distance/duration, and the per-stop
+# numbers were never attached to the route payload the frontend renders.
+#
+# This consolidates onto one Google-backed calculation so the driver's map
+# shows real road ETA (per the decision to prioritize accuracy over request
+# volume), with a short in-memory throttle so a fast stream of GPS pings
+# doesn't turn into a Google Distance Matrix call per pickup per ping.
+#
+# Throttle is keyed on (ride_id, destination) and skipped if the driver
+# hasn't moved more than ~30m and the last calculation is under
+# ETA_RECALC_INTERVAL_SECONDS old - the cached value is reused instead.
+# This is process-local (a plain dict), which is fine for a single Django/
+# Channels worker; if you run multiple workers behind a load balancer,
+# swap this for a Redis-backed cache (e.g. django.core.cache) so the
+# throttle is shared across processes instead of duplicating calls once
+# per worker.
+# ---------------------------------------------------------------------------
+
+ETA_RECALC_INTERVAL_SECONDS = 15
+ETA_RECALC_MIN_MOVEMENT_METERS = 30
+
+_eta_cache: Dict[str, Dict] = {}
+
+
+def get_stop_distance_eta(
+    maps_service: "GoogleMapsService",
+    ride_id: str,
+    stop_key: str,
+    driver_lat: float,
+    driver_lng: float,
+    dest_lat: float,
+    dest_lng: float,
+) -> Dict:
+    """
+    Real road distance/duration (via Google) from the driver's current
+    location to a single stop (a pickup or dropoff point), with a short
+    throttle so frequent location pings don't each trigger a fresh API call.
+
+    Returns a dict shaped: {distance_meters, duration_seconds, eta_minutes}.
+    Falls back to straight-line geodesic + flat speed only if the Google
+    call itself fails (e.g. API error/timeout) - never silently returns
+    nothing, since the frontend always needs a number to render.
+    """
+    from geopy.distance import geodesic
+
+    cache_key = f"{ride_id}:{stop_key}"
+    now = timezone.now()
+    cached = _eta_cache.get(cache_key)
+
+    if cached:
+        moved = geodesic(
+            (cached['driver_lat'], cached['driver_lng']),
+            (driver_lat, driver_lng),
+        ).meters
+        age_seconds = (now - cached['computed_at']).total_seconds()
+        if moved < ETA_RECALC_MIN_MOVEMENT_METERS and age_seconds < ETA_RECALC_INTERVAL_SECONDS:
+            return cached['result']
+
+    try:
+        directions = maps_service.get_directions(
+            origin=(driver_lat, driver_lng),
+            destination=(dest_lat, dest_lng),
+        )
+        if not directions:
+            raise ValueError("Google directions returned no result")
+        distance_meters = directions['distance_meters']
+        duration_seconds = directions.get('duration_in_traffic_seconds') or directions.get('duration_seconds')
+    except Exception:
+        # Google call failed - fall back to the old straight-line estimate
+        # rather than leaving the driver's UI with no number at all.
+        distance_meters = geodesic((driver_lat, driver_lng), (dest_lat, dest_lng)).meters
+        average_speed_mps = 8.33  # ~30 km/h city fallback speed
+        duration_seconds = distance_meters / average_speed_mps
+
+    result = {
+        'distance_meters': round(distance_meters),
+        'duration_seconds': round(duration_seconds),
+        'eta_minutes': max(1, round(duration_seconds / 60)),
+    }
+
+    _eta_cache[cache_key] = {
+        'driver_lat': driver_lat,
+        'driver_lng': driver_lng,
+        'computed_at': now,
+        'result': result,
+    }
+
+    return result
+
+
+def clear_stop_eta_cache(ride_id: str):
+    """Drop cached ETAs for a ride - call when it completes/cancels so the
+    process-local cache doesn't grow unbounded across many rides over time."""
+    stale_keys = [k for k in _eta_cache if k.startswith(f"{ride_id}:")]
+    for k in stale_keys:
+        _eta_cache.pop(k, None)
+
+
 class RideService:
     """
     Core service for ride management.   
@@ -203,6 +309,18 @@ class RideService:
         participant set changes (match/accept/decline/pickup/dropoff),
         instead of only being available via an on-demand GET the driver's
         app happens to poll.
+
+        Each stop in the returned sequence now also carries distance_meters/
+        duration_seconds/eta_minutes from the driver's current position to
+        that stop specifically - sorting already computed a distance per
+        candidate stop, but previously discarded it once the closest one was
+        picked. The frontend needs this per-stop figure to show "3.2 km /
+        9 min to Rider 2 pickup" on the marker and passenger queue, for
+        every stop, not just the immediate next one - so it's computed for
+        every stop in the sequence below, not only the nearest. This is the
+        one path that builds the route for both solo (single pickup/dropoff
+        pair) and shared rides alike - a solo ride is just the case where
+        pending_stops only ever has one pickup and one dropoff in it.
         """
         from geopy.distance import geodesic
 
@@ -247,11 +365,32 @@ class RideService:
             )
             closest_stop = valid_next_stops[0]
 
+            # Real road distance/ETA from the driver's current position to
+            # this stop, via the throttled Google-backed helper above.
+            # Note: this is "driver's current position -> this stop"
+            # directly, not "driver -> previous stop -> this stop" - i.e.
+            # every stop's number is relative to where the driver is RIGHT
+            # NOW, which is what "how far am I from rider 2's pickup"
+            # actually means, rather than a cumulative route-leg distance.
+            stop_key = f"{closest_stop['type']}:{closest_stop['user_id']}"
+            stop_eta = get_stop_distance_eta(
+                self.maps,
+                str(ride.id),
+                stop_key,
+                current_lat,
+                current_lng,
+                closest_stop['point'].y,
+                closest_stop['point'].x,
+            )
+
             route_sequence.append({
                 "action": closest_stop['type'],
                 "user_id": str(closest_stop['user_id']),
                 "latitude": closest_stop['point'].y,
                 "longitude": closest_stop['point'].x,
+                "distance_meters": stop_eta['distance_meters'],
+                "duration_seconds": stop_eta['duration_seconds'],
+                "eta_minutes": stop_eta['eta_minutes'],
             })
 
             if closest_stop['type'] == 'pickup':
@@ -586,6 +725,18 @@ class RideService:
             ride.pool_open = ride.available_seats > 0
 
         ride.save()
+
+        # Push waypoints (with their per-stop distance/ETA) immediately on
+        # acceptance, rather than waiting for the driver's first location
+        # ping to populate them. No current_lat/current_lng is passed here
+        # because assign_driver doesn't have the driver's live GPS position
+        # at this exact moment (the driver only starts sending location
+        # pings once they've joined the ride's websocket group, which
+        # happens slightly after this point in the flow) - this falls back
+        # to ride.pickup_location internally (see compute_optimized_route),
+        # which is a reasonable first approximation and gets corrected by
+        # the genuinely live figure within seconds, on the next ping.
+        self.push_optimized_route(ride)
        
         # Notify rider via WebSocket
         eta_seconds = eta_info['eta_seconds'] if eta_info else None

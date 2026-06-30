@@ -150,18 +150,45 @@ class LocationConsumer(AsyncWebsocketConsumer):
                 await self.handle_location_broadcast(data)
 
             # Changed to 'elif' to avoid double-checking if another type hit
+            # consumers.py — replace the driver_location_update elif block (lines 153-193)
+
             elif message_type == "driver_location_update":
                 ride_id = data.get('ride_id')
                 ride = await self.get_ride_by_id(ride_id)
 
-                eta_data = None
-
                 if ride:
-                    eta_data = await self.calculate_eta(
-                        ride,
-                        float(data.get("latitude")),
-                        float(data.get("longitude"))
+                    driver_lat = float(data.get("latitude"))
+                    driver_lng = float(data.get("longitude"))
+
+                    # ── Save location ──────────────────────────────────────────────
+                    await self.save_driver_location(
+                        ride_id, data.get("latitude"), data.get("longitude"), data.get("heading", 0)
                     )
+
+                    # ── Broadcast to public tracking room ─────────────────────────
+                    await self.channel_layer.group_send(
+                        f"tracking_{ride_id}",
+                        {
+                            "type": "driver_location_message",
+                            "latitude": data.get("latitude"),
+                            "longitude": data.get("longitude"),
+                            "heading": data.get("heading", 0),
+                        }
+                    )
+
+                    # ── Build per-rider ETA map ────────────────────────────────────
+                    # Each rider needs ETA from driver → their own pickup point,
+                    # not the primary rider's pickup which is what the old single
+                    # calculate_eta() always used.
+                    rider_etas = await self.calculate_per_rider_etas(ride, driver_lat, driver_lng)
+
+                    # ── Broadcast driver position to the driver themselves ────────
+                    # eta_minutes/distance_meters stay None on THIS event - a
+                    # single scalar doesn't mean anything once there can be two
+                    # pending pickups (sharing). The driver's per-stop numbers
+                    # ride on the separate route_updated push below instead,
+                    # which already carries one figure per stop. This event is
+                    # still needed as-is for positioning the car marker/heading.
                     await self.channel_layer.group_send(
                         f"ride_{ride_id}",
                         {
@@ -171,26 +198,39 @@ class LocationConsumer(AsyncWebsocketConsumer):
                             "longitude": data.get("longitude"),
                             "heading": data.get("heading", 0),
                             "speed": data.get("speed", 0),
-                            "eta_minutes":eta_data["eta_minutes"] if eta_data else None,    
-
+                            "eta_minutes": None,   # see route_updated for per-stop ETA
+                            "distance_meters": None,
                             "timestamp": timezone.now().isoformat()
                         }
                     )
-                    await self.save_driver_location(
-                        ride_id,
-                        data.get("latitude"),
-                        data.get("longitude"),
-                        data.get("heading", 0)
-                    )
-                    await self.channel_layer.group_send(
-                        f"tracking_{ride_id}",
-                        {
-                            "type": "driver_location_message",
-                             "latitude": data.get("latitude"),
-                             "longitude": data.get("longitude"),
-                             "heading": data.get("heading", 0),
-                        }
-                    )
+
+                    # ── Push fresh per-stop route/ETA to the driver ───────────────
+                    # Recomputes compute_optimized_route with the driver's live
+                    # position so every pending pickup/dropoff gets an up-to-date
+                    # distance_meters/eta_minutes, then sends it as the same
+                    # route_updated event the frontend already listens for (it
+                    # was previously only pushed on participant-set changes, via
+                    # RideService.push_optimized_route elsewhere - this adds the
+                    # location-driven refresh that keeps the numbers live while
+                    # the driver is en route, for both solo and shared rides).
+                    await self.push_driver_route_update(ride_id, driver_lat, driver_lng)
+
+                    # ── Send personalised ETA to each rider via their user group ──
+                    for user_id, eta_minutes in rider_etas.items():
+                        await self.channel_layer.group_send(
+                            f"user_{user_id}",
+                            {
+                                "type": "driver_location",
+                                "driver_id": str(self.user.id),
+                                "latitude": data.get("latitude"),
+                                "longitude": data.get("longitude"),
+                                "heading": data.get("heading", 0),
+                                "speed": data.get("speed", 0),
+                                "eta_minutes": eta_minutes,
+                                "distance_meters": None,
+                                "timestamp": timezone.now().isoformat()
+                            }
+                        )
             
             elif message_type == "new_ride_request":
                 # If this comes from the backend to the frontend, 
@@ -616,6 +656,81 @@ class LocationConsumer(AsyncWebsocketConsumer):
             heading=heading,
             recorded_at=timezone.now()
         )
+
+    @database_sync_to_async
+    def calculate_per_rider_etas(self, ride, driver_lat, driver_lng):
+        """
+        Returns {user_id_str: eta_minutes} for every rider who hasn't been
+        picked up yet.  Pool passengers use their own pickup_location;
+        the organiser uses ride.pickup_location.
+        """
+        from geopy.distance import geodesic
+        from .models import RideParticipant
+
+        average_speed_mps = 8.33   # ~30 km/h city speed
+        result = {}
+
+        # Organiser (primary rider) – use ride-level pickup
+        if ride.rider_id and ride.pickup_location:
+            organizer = ride.participants.filter(is_organizer=True).first()
+            if organizer and organizer.status not in ('picked_up', 'dropped_off', 'cancelled'):
+                dist = geodesic(
+                    (driver_lat, driver_lng),
+                    (ride.pickup_location.y, ride.pickup_location.x)
+                ).meters
+                result[str(ride.rider_id)] = max(1, round(dist / average_speed_mps / 60))
+
+        # Pool passengers – each has their own pickup_location
+        for p in ride.participants.filter(
+            is_organizer=False,
+            status__in=[RideParticipant.Status.ACCEPTED]  # not yet picked up
+        ):
+            if p.pickup_location:
+                dist = geodesic(
+                    (driver_lat, driver_lng),
+                    (p.pickup_location.y, p.pickup_location.x)
+                ).meters
+                result[str(p.user_id)] = max(1, round(dist / average_speed_mps / 60))
+
+        return result
+    # -----------------------------------------------------------------------------------------
+
+    async def push_driver_route_update(self, ride_id, driver_lat, driver_lng):
+        """
+        Recompute the pending pickup/dropoff sequence from the driver's
+        live position and push it as a route_updated event, the same shape
+        RideService.push_optimized_route already sends on participant-set
+        changes (see ride.py). This is the location-driven counterpart -
+        called on every driver_location_update so distance_meters/
+        eta_minutes per stop stay current while en route, not just at the
+        moment a rider is matched/accepted/dropped.
+
+        Wrapped in its own try/except so a transient Google API failure
+        inside compute_optimized_route (network hiccup, quota burst) can't
+        crash the whole location-update handler and drop the driver's
+        position broadcast along with it - the get_stop_distance_eta
+        helper already falls back to a geodesic estimate internally, but
+        this is a second layer of safety around the whole route rebuild.
+        """
+        try:
+            route = await self.recompute_optimized_route(ride_id, driver_lat, driver_lng)
+        except Exception as e:
+            print("ROUTE UPDATE ERROR:", e)
+            return
+
+        await self.channel_layer.group_send(
+            f"ride_{ride_id}",
+            {
+                "type": "route_updated",
+                "optimized_route": route,
+            }
+        )
+
+    @database_sync_to_async
+    def recompute_optimized_route(self, ride_id, driver_lat, driver_lng):
+        from .services.ride import RideService
+        ride = Ride.objects.get(id=ride_id)
+        return RideService().compute_optimized_route(ride, driver_lat, driver_lng)
 
     # -----------------------------------------------------------------------------------------
     

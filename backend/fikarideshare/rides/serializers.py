@@ -90,6 +90,14 @@ class RideParticipantSerializer(serializers.ModelSerializer):
 
 class SharedRideParticipantSerializer(serializers.ModelSerializer):
     user = UserProfileSerializer(read_only=True)
+    # pickup_location/dropoff_location were missing here even though they
+    # exist on the model and are populated at join time - the driver's map
+    # needs each pool participant's actual coordinates to place a marker
+    # and compute a live ETA to their specific pickup point, not just the
+    # human-readable address string. Mirrors the pattern already used by
+    # RideSerializer.get_pickup_location below.
+    pickup_location = serializers.SerializerMethodField()
+    dropoff_location = serializers.SerializerMethodField()
 
     class Meta:
         model = RideParticipant
@@ -98,12 +106,30 @@ class SharedRideParticipantSerializer(serializers.ModelSerializer):
             
             "user",
             "pickup_address",
+            "pickup_location",
             "dropoff_address",
+            "dropoff_location",
             "status",
             "joined_at",
             "pickup_code"
         ]
         read_only_fields = fields
+
+    def get_pickup_location(self, obj):
+        if obj.pickup_location:
+            return {
+                'latitude': obj.pickup_location.y,
+                'longitude': obj.pickup_location.x,
+            }
+        return None
+
+    def get_dropoff_location(self, obj):
+        if obj.dropoff_location:
+            return {
+                'latitude': obj.dropoff_location.y,
+                'longitude': obj.dropoff_location.x,
+            }
+        return None
 
     
 class RideSerializer(serializers.ModelSerializer):
