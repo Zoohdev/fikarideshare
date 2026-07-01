@@ -1,3 +1,3 @@
 release: python manage.py migrate --noinput
 web: daphne -b 0.0.0.0 -p $PORT config.asgi:application
-worker: celery -A config worker -B -l info
+worker: celery -A config worker -B --concurrency=1 --max-tasks-per-child=200 -l info
