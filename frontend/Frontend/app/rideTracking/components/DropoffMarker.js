@@ -12,7 +12,7 @@ const DropoffMarker = ({ coordinate }) => {
   return (
     <Marker coordinate={coordinate} anchor={{ x: 0.5, y: 1 }}>
       <View style={styles.wrap}>
-        <Svg width={40} height={50} viewBox="0 0 40 50">
+        <Svg width={50} height={62} viewBox="0 0 40 50">
           <Path
             d="M20 49 C20 49 4 30 4 18 a16 16 0 0 1 32 0 C36 30 20 49 20 49 Z"
             fill="#E8A33D"
@@ -21,7 +21,7 @@ const DropoffMarker = ({ coordinate }) => {
             d="M20 49 C20 49 4 30 4 18 a16 16 0 0 1 32 0 C36 30 20 49 20 49 Z"
             fill="none"
             stroke="#D4AF37"
-            strokeWidth={1.5}
+            strokeWidth={2}
           />
           <Path d="M14 11 h13 l-3 4 l3 4 h-13 z" fill="#FAF7F2" />
           <Rect x={13.2} y={10} width={2} height={15} rx={1} fill="#FAF7F2" />

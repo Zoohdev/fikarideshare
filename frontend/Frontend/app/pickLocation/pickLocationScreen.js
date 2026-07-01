@@ -18,7 +18,7 @@ import { useLocalSearchParams, useNavigation } from "expo-router";
 import MapView, { PROVIDER_GOOGLE,Marker} from 'react-native-maps';
 import MapViewDirections from 'react-native-maps-directions';
 import { Key } from '../../constants/key';
-import { MAP_THEME, LIVE_TRACKING_DELTA, GOOGLE_MAP_ID } from '../../constants/mapTheme';
+import { MAP_THEME, LIVE_TRACKING_DELTA } from '../../constants/mapTheme';
 const GOOGLE_MAPS_API_KEY = Key.apiKey;
 const customMapTheme = MAP_THEME;
 
@@ -39,8 +39,6 @@ const MapSection = ({
       provider={PROVIDER_GOOGLE}
 
       style={styles.webview}
-
-      mapId={GOOGLE_MAP_ID}
 
       customMapStyle={customMapTheme}
 

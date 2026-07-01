@@ -506,7 +506,7 @@ import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import api from "../../services/api";
 import { Key } from "../../constants/key";
-import { MAP_THEME, LIVE_TRACKING_DELTA, ROUTE_LINE_COLOR, GOOGLE_MAP_ID } from "../../constants/mapTheme";
+import { MAP_THEME, LIVE_TRACKING_DELTA, ROUTE_LINE_COLOR } from "../../constants/mapTheme";
 import { WS_TRACKING_URL } from "../../constants/apiConfig";
 import AnimatedDriverMarker from "../rideTracking/components/AnimatedDriverMarker";
 
@@ -721,7 +721,6 @@ const StartRideScreen = () => {
           ref={mapRef}
           provider={PROVIDER_GOOGLE}
           style={StyleSheet.absoluteFillObject}
-          mapId={GOOGLE_MAP_ID}
           customMapStyle={JSON.parse(JSON.stringify(customMapTheme))}
           initialRegion={{
             latitude: driverLocation?.latitude || pickupLocation.latitude || 0,

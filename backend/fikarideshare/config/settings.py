@@ -6,16 +6,28 @@ from datetime import timedelta
 from decouple import config
 import glob
 from dotenv import load_dotenv
+import dj_database_url
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+
+def _redis_tls(url):
+    """Heroku Redis uses rediss:// with a self-signed cert. redis-py rejects
+    it unless we relax cert verification. Local redis:// is returned as-is."""
+    if url.startswith('rediss://') and 'ssl_cert_reqs' not in url:
+        sep = '&' if '?' in url else '?'
+        return f'{url}{sep}ssl_cert_reqs=none'
+    return url
 
 load_dotenv(os.path.join(BASE_DIR, '.env'))
 
 
 SECRET_KEY = config('SECRET_KEY')
 DEBUG = config('DEBUG', default=False, cast=bool)
-ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='').split(',')
+ALLOWED_HOSTS = [h for h in config('ALLOWED_HOSTS', default='').split(',') if h]
+ALLOWED_HOSTS += ['.herokuapp.com']
+CSRF_TRUSTED_ORIGINS = ['https://*.herokuapp.com']
 GOOGLE_MAPS_API_KEY = os.environ.get('GOOGLE_MAPS_API_KEY')
 
 # Application definition
@@ -56,6 +68,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',  # Must be first
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',  # Serve static files on Heroku
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -72,26 +85,44 @@ ROOT_URLCONF = 'config.urls'
 AUTH_USER_MODEL = 'users.User'
 
 
-# Database configuration with PostGIS
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.contrib.gis.db.backends.postgis',
-        'NAME': config('DB_NAME'),
-        'USER': config('DB_USER'),
-        'PASSWORD': config('DB_PASSWORD'),
-        'HOST': config('DB_HOST', default='localhost'),
-        'PORT': config('DB_PORT', default='5432'),
+# Database configuration with PostGIS.
+# On Heroku, the Postgres addon injects DATABASE_URL - use it. Locally we fall
+# back to the discrete DB_* vars from .env.
+if config('DATABASE_URL', default=''):
+    DATABASES = {
+        'default': dj_database_url.config(
+            default=config('DATABASE_URL'),
+            conn_max_age=600,
+            ssl_require=True,
+        )
     }
-}
+    # dj-database-url sets the plain postgres engine; force the GIS backend.
+    DATABASES['default']['ENGINE'] = 'django.contrib.gis.db.backends.postgis'
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.contrib.gis.db.backends.postgis',
+            'NAME': config('DB_NAME'),
+            'USER': config('DB_USER'),
+            'PASSWORD': config('DB_PASSWORD'),
+            'HOST': config('DB_HOST', default='localhost'),
+            'PORT': config('DB_PORT', default='5432'),
+        }
+    }
 
 
-# Redis cache configuration
+# Redis. On Heroku a single addon provides one REDIS_URL (rediss://, db 0)
+# shared by cache, channels and Celery. Locally each uses its own db number.
+REDIS_URL = config('REDIS_URL', default='redis://127.0.0.1:6379/0')
+REDIS_IS_TLS = REDIS_URL.startswith('rediss://')
+
 CACHES = {
     'default': {
         'BACKEND': 'django_redis.cache.RedisCache',
-        'LOCATION': config('REDIS_URL', default='redis://127.0.0.1:6379/1'),
+        'LOCATION': _redis_tls(config('REDIS_URL', default='redis://127.0.0.1:6379/1')),
         'OPTIONS': {
             'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+            'CONNECTION_POOL_KWARGS': {'ssl_cert_reqs': None} if REDIS_IS_TLS else {},
         }
     }
 }
@@ -105,7 +136,7 @@ CHANNEL_LAYERS = {
     'default': {
         'BACKEND': 'channels_redis.core.RedisChannelLayer',
         'CONFIG': {
-            'hosts': [config('REDIS_URL', default='redis://127.0.0.1:6379/0')],
+            'hosts': [_redis_tls(REDIS_URL)],
         },
     },
 }
@@ -145,8 +176,8 @@ SIMPLE_JWT = {
 
 
 # Celery configuration
-CELERY_BROKER_URL = config('REDIS_URL', default='redis://127.0.0.1:6379/2')
-CELERY_RESULT_BACKEND = config('REDIS_URL', default='redis://127.0.0.1:6379/2')
+CELERY_BROKER_URL = _redis_tls(config('REDIS_URL', default='redis://127.0.0.1:6379/2'))
+CELERY_RESULT_BACKEND = _redis_tls(config('REDIS_URL', default='redis://127.0.0.1:6379/2'))
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
@@ -183,9 +214,30 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
+# WhiteNoise serves static files from the dyno. Media (user uploads such as KYC
+# docs) must NOT live on the dyno - its filesystem is wiped on every restart -
+# so enable S3 with USE_S3=True + AWS_* vars for anything you can't lose.
+STORAGES = {
+    'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
+    'staticfiles': {'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage'},
+}
+
+USE_S3 = config('USE_S3', default=False, cast=bool)
+if USE_S3:
+    AWS_ACCESS_KEY_ID = config('AWS_ACCESS_KEY_ID', default='')
+    AWS_SECRET_ACCESS_KEY = config('AWS_SECRET_ACCESS_KEY', default='')
+    AWS_STORAGE_BUCKET_NAME = config('AWS_STORAGE_BUCKET_NAME', default='')
+    AWS_S3_REGION_NAME = config('AWS_S3_REGION_NAME', default='')
+    AWS_S3_FILE_OVERWRITE = False
+    AWS_DEFAULT_ACL = None
+    STORAGES['default'] = {'BACKEND': 'storages.backends.s3boto3.S3Boto3Storage'}
+
 
 # Security settings (production)
 if not DEBUG:
+    # Heroku terminates TLS at its router and forwards over HTTP with this
+    # header; without it SECURE_SSL_REDIRECT causes an infinite redirect loop.
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
     SECURE_SSL_REDIRECT = True
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True

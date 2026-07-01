@@ -21,15 +21,13 @@ import * as Contacts from 'expo-contacts';
 import * as SMS from 'expo-sms';
 import api from '../../services/api';
 import { Key } from '../../constants/key';
-import { MAP_THEME, LIVE_TRACKING_DELTA, ROUTE_LINE_COLOR, ROUTE_GLOW_COLOR, ROUTE_HIGHLIGHT_COLOR, GOOGLE_MAP_ID } from '../../constants/mapTheme';
+import { GOOGLE_MAP_ID, getNavCamera, ROUTE_LINE_COLOR, ROUTE_GLOW_COLOR, ROUTE_HIGHLIGHT_COLOR } from '../../constants/mapTheme';
 import { WS_TRACKING_URL } from '../../constants/apiConfig';
 import AnimatedDriverMarker from './components/AnimatedDriverMarker';
 import SOSButton from '../../components/SOSbutton';
 
 const GOOGLE_MAPS_APIKEY = Key.apiKey;
 const WS_BASE = WS_TRACKING_URL;
-
-const customMapTheme = MAP_THEME;
 
 export default function RiderInTripScreen() {
   const router = useRouter();
@@ -295,13 +293,10 @@ export default function RiderInTripScreen() {
           }}
           style={styles.webview}
           mapId={GOOGLE_MAP_ID}
-          customMapStyle={customMapTheme}
-          initialRegion={{
+          initialCamera={getNavCamera({
             latitude: targetDropoff.latitude || -26.2041,
             longitude: targetDropoff.longitude || 28.0473,
-            latitudeDelta: LIVE_TRACKING_DELTA,
-            longitudeDelta: LIVE_TRACKING_DELTA,
-          }}
+          })}
         >
           {/* Driver live vehicle marker - Increased Size */}
           {driverLocation && (

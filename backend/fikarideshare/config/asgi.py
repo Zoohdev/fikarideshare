@@ -2,6 +2,8 @@ import asyncio
 import os
 import sys
 
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
+
 # windows' default ProactorEventLoop has a known incompatibility with
 # redis.asyncio's timeout handling (channels_redis), causing spurious
 # "Timeout reading from 127.0.0.1:6379" errors that kill every websocket
@@ -13,14 +15,17 @@ if sys.platform == "win32":
 
 from django.core.asgi import get_asgi_application
 
+# Initialise Django's app registry BEFORE importing anything that touches
+# models/auth. rides.middleware imports AnonymousUser at module load, so it
+# must come after get_asgi_application(). Under `daphne config.asgi:application`
+# (how the Heroku web dyno starts) nothing sets Django up for us first, unlike
+# `manage.py runserver` - so import order here is load-bearing.
+django_asgi_app = get_asgi_application()
+
 from channels.routing import ProtocolTypeRouter, URLRouter
 from channels.auth import AuthMiddlewareStack
 from rides.middleware import TokenAuthMiddleware
 
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
-django_asgi_app = get_asgi_application()
-
-from rides.routing import websocket_urlpatterns
 # Fallback import to keep Daphne from crashing if routing.py is blank
 try:
     from rides.routing import websocket_urlpatterns
@@ -28,7 +33,7 @@ except ImportError:
     websocket_urlpatterns = []
 
 application = ProtocolTypeRouter({
-    "http": get_asgi_application(),
+    "http": django_asgi_app,
     # "websocket": AuthMiddlewareStack(
     #     URLRouter(
     #         websocket_urlpatterns

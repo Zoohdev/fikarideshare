@@ -984,7 +984,7 @@ import MapView, { PROVIDER_GOOGLE, Marker } from 'react-native-maps';
 import MapViewDirections from 'react-native-maps-directions';
 import api from "../../../services/api";
 import { Key } from "../../../constants/key";
-import { MAP_THEME, LIVE_TRACKING_DELTA, ROUTE_LINE_COLOR, GOOGLE_MAP_ID } from "../../../constants/mapTheme";
+import { MAP_THEME, LIVE_TRACKING_DELTA, ROUTE_LINE_COLOR } from "../../../constants/mapTheme";
 import { VEHICLE_TYPE_KEYS } from "../../../constants/vehicleTypes";
 import { API_HOST } from "../../../constants/apiConfig";
 import { useProfile } from "../../context/ProfileContext";
@@ -1042,7 +1042,6 @@ const MapSection = ({
         ref={mapRef}
         provider={PROVIDER_GOOGLE}
         style={styles.Map}
-        mapId={GOOGLE_MAP_ID}
         customMapStyle={customMapTheme}
         initialRegion={{
           latitude: currentLocation.latitude,

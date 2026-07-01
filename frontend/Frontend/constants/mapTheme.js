@@ -299,14 +299,30 @@ export const MAP_THEME = [
 // project as Key.apiKey, so it resolves under our own key too.
 export const GOOGLE_MAP_ID = '683bbaed124217965ad088fb';
 
+// Tilted camera for the 3D-building navigation views. Pass to MapView's
+// initialCamera prop alongside mapId - pitch is what actually reveals the
+// building extrusion; without it vector maps look flat from directly
+// overhead, same as a raster map.
+export function getNavCamera(coordinate, overrides = {}) {
+  return {
+    center: coordinate,
+    pitch: 60,
+    heading: 0,
+    zoom: 18,
+    altitude: 400,
+    ...overrides,
+  };
+}
+
 // Degrees of lat/lng span shown on screen - smaller is more zoomed in.
 // Live tracking (driver en route, in-trip, pickup picker) wants a close,
 // street-level view, matching the reference's "Confirm the pick-up spot"
 // zoom. Trip-summary screens show a whole start-to-end route and need
 // more room - fitToCoordinates() takes over once a route loads anyway,
 // matching the reference's "Confirm the ride category" overview zoom.
-export const LIVE_TRACKING_DELTA = 0.004;
-export const TRIP_OVERVIEW_DELTA = 0.02;
+// Both deltas are 1/5 of their previous span - 5x closer/more zoomed in.
+export const LIVE_TRACKING_DELTA = 0.0008;
+export const TRIP_OVERVIEW_DELTA = 0.004;
 
 // Route line is rendered as 3 stacked Polylines (glow casing + main line +
 // highlight) for the premium "glowing route" look, instead of one flat

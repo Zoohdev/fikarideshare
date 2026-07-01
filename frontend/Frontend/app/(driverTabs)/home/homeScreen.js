@@ -19,7 +19,7 @@ import Svg, { Circle, Path } from "react-native-svg";
 import { useRouter } from "expo-router";
 import { useIsFocused } from "@react-navigation/native";
 import { Colors, Sizes } from "../../../constants/styles";
-import { MAP_THEME, LIVE_TRACKING_DELTA, GOOGLE_MAP_ID } from "../../../constants/mapTheme";
+import { MAP_THEME, LIVE_TRACKING_DELTA } from "../../../constants/mapTheme";
 import AnimatedDriverMarker from "../../rideTracking/components/AnimatedDriverMarker";
 import api from "../../../services/api";
 import { useProfile } from "../../context/ProfileContext";
@@ -458,7 +458,6 @@ const HomeScreen = () => {
         ref={mapRef}
         provider={PROVIDER_GOOGLE}
         style={styles.map}
-        mapId={GOOGLE_MAP_ID}
         customMapStyle={MAP_THEME}
         initialRegion={currentLocation ? {
           ...currentLocation,

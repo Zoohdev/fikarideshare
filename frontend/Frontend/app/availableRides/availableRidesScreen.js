@@ -26,7 +26,7 @@ import api from "../../services/api";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Location from "expo-location";
 import { Key } from "../../constants/key";
-import { MAP_THEME, LIVE_TRACKING_DELTA, ROUTE_LINE_COLOR, ROUTE_GLOW_COLOR, ROUTE_HIGHLIGHT_COLOR, GOOGLE_MAP_ID } from "../../constants/mapTheme";
+import { MAP_THEME, LIVE_TRACKING_DELTA, ROUTE_LINE_COLOR, ROUTE_GLOW_COLOR, ROUTE_HIGHLIGHT_COLOR } from "../../constants/mapTheme";
 import { API_BASE_URL, WS_BASE_URL } from "../../constants/apiConfig";
 import { VEHICLE_TYPES } from "../../constants/vehicleTypes";
 
@@ -66,7 +66,6 @@ const MapSection = ({ currentLocation, destinationCoords, showMap, mapRef }) => 
         ref={mapRef}
         provider={PROVIDER_GOOGLE}
         style={styles.webview}
-        mapId={GOOGLE_MAP_ID}
         customMapStyle={customMapTheme}
         initialRegion={{
           latitude: currentLocation.latitude,

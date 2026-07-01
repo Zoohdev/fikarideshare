@@ -14,7 +14,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import api from '../../services/api';
 import { Key } from '../../constants/key';
-import { MAP_THEME, LIVE_TRACKING_DELTA, ROUTE_LINE_COLOR, ROUTE_GLOW_COLOR, ROUTE_HIGHLIGHT_COLOR, GOOGLE_MAP_ID } from '../../constants/mapTheme';
+import { GOOGLE_MAP_ID, getNavCamera, ROUTE_LINE_COLOR, ROUTE_GLOW_COLOR, ROUTE_HIGHLIGHT_COLOR } from '../../constants/mapTheme';
 import { WS_TRACKING_URL } from '../../constants/apiConfig';
 import AnimatedDriverMarker from './components/AnimatedDriverMarker';
 import { useSOSEmergency } from '../../hooks/useSOSEmergency';
@@ -24,8 +24,6 @@ import { Colors } from '../../constants/styles';
 
 const GOOGLE_MAPS_APIKEY = Key.apiKey;
 const WS_BASE = WS_TRACKING_URL;
-
-const customMapTheme = MAP_THEME;
 
 export default function ActiverideScreen() {
   const router = useRouter();
@@ -912,13 +910,7 @@ async () => {
         ref={mapRef}
         style={styles.webview}
         mapId={GOOGLE_MAP_ID}
-        customMapStyle={customMapTheme}
-        initialRegion={{
-          latitude: initialLat,
-          longitude: initialLng,
-          latitudeDelta: LIVE_TRACKING_DELTA,
-          longitudeDelta: LIVE_TRACKING_DELTA,
-        }}
+        initialCamera={getNavCamera({ latitude: initialLat, longitude: initialLng })}
       >
         {/* =========================================
             A. DRIVER CAR MARKER (Visible to Both)
