@@ -662,6 +662,7 @@ class RideService:
             ).exists()
            
             if has_active_ride:
+                print(f"DRIVER {driver_id} SKIPPED — has active ride")
                 continue
            
             try:
