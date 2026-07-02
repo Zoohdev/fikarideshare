@@ -27,21 +27,7 @@ def find_and_assign_driver(self, ride_id: str):
    
     service = RideService()
    
-    # 1. Dynamically retrieve drivers who have already declined this ride request
-    # This prevents the retry mechanism from spamming the exact same driver.
-    declined_drivers = []
-    if hasattr(ride, 'driver_requests'):
-        declined_drivers = list(
-            ride.driver_requests.filter(
-                status='declined'
-            ).values_list('driver_id', flat=True)
-        )
-   
-    # 2. Find available driver passing the excluded driver list
-    driver = service.find_available_driver(
-        ride=ride, 
-        exclude_drivers=[str(d) for d in declined_drivers]
-    )
+    driver = service.find_available_driver(ride=ride, exclude_drivers=[])
     print("Found driver:", driver)
     
     if driver:
@@ -73,32 +59,16 @@ def find_and_assign_driver(self, ride_id: str):
             }
         })
     else:
-        # 3. CRITICAL FALLBACK FOR RIDE SHARING WORKFLOW
-        # If no free driver is found near User 2, trigger Celery's retry mechanism.
+        # Trigger Celery retry to loop back until the driver's location/status becomes available
         if self.request.retries < self.max_retries:
-            print(f"DEBUG: No idle driver found right now. Re-queuing task assignment loop for ride {ride_id} (Attempt {self.request.retries + 1}/{self.max_retries}) in 30 seconds...")
+            print(f"No available driver matching criteria yet. Retrying search task (Attempt {self.request.retries + 1}/{self.max_retries})...")
             raise self.retry()
         else:
-            # 4. Out of retry attempts; close out the request safely so the rider isn't left hanging
-            print(f"DEBUG: Max lookup retries exhausted for ride {ride_id}. Moving to cancelled state.")
+            print(f"Max allocation retries reached. Driver search failed for ride {ride.id}.")
             ride.status = Ride.Status.CANCELLED
             ride.save(update_fields=['status'])
-            
-            # Notify the requesting passenger's device via WebSocket group channel
-            channel_layer = get_channel_layer()
-            async_to_sync(channel_layer.group_send)(
-                f"user_{ride.rider_id}",
-                {
-                    "type": "ride_status",
-                    "data": {
-                        "ride_id": str(ride.id),
-                        "status": ride.status,
-                        "message": "No available drivers were found in your operating area."
-                    }
-                }
-            )
 
-            
+
 # @shared_task(bind=True, max_retries=5, default_retry_delay=30)
 # def find_and_assign_driver(self, ride_id: str):
 #     """
