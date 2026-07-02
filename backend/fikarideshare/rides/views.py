@@ -309,7 +309,15 @@ class RideViewSet(viewsets.ModelViewSet):
         current_lat = float(lat_param) if lat_param else None
         current_lng = float(lng_param) if lng_param else None
 
+        approx_lat = round(float(lat_param), 4)
+        approx_lng = round(float(lng_param), 4)
+
+        cache_key = f"smart_waypoints_{pk}_{approx_lat}_{approx_lng}"
+        cached_response = cache.get(cache_key)
+        if cached_response is not None:
+            return Response(cached_response)
         route_sequence = RideService().compute_optimized_route(ride, current_lat, current_lng)
+        cache.set(cache_key, waypoints_data, timeout=5)
         return Response({"optimized_route": route_sequence}, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['get'])
