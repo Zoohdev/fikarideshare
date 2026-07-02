@@ -393,7 +393,7 @@ class RideService:
 
         return best_pool
 
-        
+
 
     def compute_optimized_route(self, ride: Ride, current_lat: float = None, current_lng: float = None) -> List[Dict]:
         """
@@ -712,68 +712,194 @@ class RideService:
             'verification_code': ride.verification_code,
         }
    
-    def find_available_driver(
-        self,
-        ride: Ride,
-        exclude_drivers: List[str] = None
-    ) -> Optional[User]:
-        """
-        Find the best available driver for a ride.
+    # def find_available_driver(
+    #     self,
+    #     ride: Ride,
+    #     exclude_drivers: List[str] = None
+    # ) -> Optional[User]:
+    #     """
+    #     Find the best available driver for a ride.
        
-        Selection criteria:
-        1. Distance to pickup (primary)
-        2. Driver rating
-        3. Vehicle type match
-        """
-        exclude_drivers = exclude_drivers or []
+    #     Selection criteria:
+    #     1. Distance to pickup (primary)
+    #     2. Driver rating
+    #     3. Vehicle type match
+    #     """
+    #     exclude_drivers = exclude_drivers or []
        
-        print("================================")
-        print("LOOKING FOR DRIVERS")
-        print("PICKUP LAT:", ride.pickup_location.y)
-        print("PICKUP LNG:", ride.pickup_location.x)
+    #     print("================================")
+    #     print("LOOKING FOR DRIVERS")
+    #     print("PICKUP LAT:", ride.pickup_location.y)
+    #     print("PICKUP LNG:", ride.pickup_location.x)
 
 
-        nearby_drivers = self.location_service.find_nearby_drivers(
-            latitude=ride.pickup_location.y,
-            longitude=ride.pickup_location.x,
-            radius_km=15,
-            vehicle_type=ride.vehicle_type_requested,
-            limit=10
-        )
+    #     nearby_drivers = self.location_service.find_nearby_drivers(
+    #         latitude=ride.pickup_location.y,
+    #         longitude=ride.pickup_location.x,
+    #         radius_km=15,
+    #         vehicle_type=ride.vehicle_type_requested,
+    #         limit=10
+    #     )
         
-        for driver_info in nearby_drivers:
-            driver_id = driver_info['driver_id']
+    #     for driver_info in nearby_drivers:
+    #         driver_id = driver_info['driver_id']
            
-            if driver_id in exclude_drivers:
-                continue
-            print("================================")
-            print("DRIVER ID:", driver_id)
-            print("USER EXISTS:",
-                User.objects.filter(id=driver_id).exists())
+    #         if driver_id in exclude_drivers:
+    #             continue
+    #         print("================================")
+    #         print("DRIVER ID:", driver_id)
+    #         print("USER EXISTS:",
+    #             User.objects.filter(id=driver_id).exists())
 
-            user = User.objects.filter(id=driver_id).first()
-            print("USER OBJECT:", user)
-            print("================================")
-            # Check driver doesn't have active ride
-            has_active_ride = Ride.objects.filter(
-                driver_id=driver_id,
-                status__in=[
-                    Ride.Status.DRIVER_ASSIGNED,
-                    Ride.Status.DRIVER_ARRIVING,
-                    Ride.Status.ARRIVED,
-                    Ride.Status.IN_PROGRESS,
-                ]
-            ).exists()
+    #         user = User.objects.filter(id=driver_id).first()
+    #         print("USER OBJECT:", user)
+    #         print("================================")
+    #         # Check driver doesn't have active ride
+    #         has_active_ride = Ride.objects.filter(
+    #             driver_id=driver_id,
+    #             status__in=[
+    #                 Ride.Status.DRIVER_ASSIGNED,
+    #                 Ride.Status.DRIVER_ARRIVING,
+    #                 Ride.Status.ARRIVED,
+    #                 Ride.Status.IN_PROGRESS,
+    #             ]
+    #         ).exists()
            
-            if has_active_ride:
-                print(f"DRIVER {driver_id} SKIPPED — has active ride")
-                continue
+    #         if has_active_ride:
+    #             print(f"DRIVER {driver_id} SKIPPED — has active ride")
+    #             continue
            
-            try:
-                return User.objects.get(id=driver_id)
-            except User.DoesNotExist:
-                continue
+    #         try:
+    #             return User.objects.get(id=driver_id)
+    #         except User.DoesNotExist:
+    #             continue
        
+    #     return None
+    def find_available_driver(self, ride: Ride, exclude_drivers: Optional[List[str]] = None) -> Optional[User]:
+        """
+        Finds the closest available driver matching the requested vehicle type.
+        Includes exhaustive console tracking for each filtering state.
+        """
+        if exclude_drivers is None:
+            exclude_drivers = []
+
+        print("\n" + "="*60)
+        print(f"[MATCHING ENGINE START] Processing Ride ID: {ride.id}")
+        print(f"-> Target Vehicle Type Needed: '{getattr(ride, 'vehicle_type', 'Not Found on Ride Object')}'")
+        print(f"-> Excluded Driver IDs for this pass: {exclude_drivers}")
+        print("="*60)
+
+        # 1. Gather all active drivers in the system
+        # Adjust filters based on your precise fields (e.g., role='driver', is_active=True)
+        potential_drivers = User.objects.filter(
+            is_active=True
+        ).select_related('vehicle')
+
+        print(f"[DATABASE CHECK] Total active user records found in DB: {potential_drivers.count()}")
+
+        if not potential_drivers.exists():
+            print("-> [FAILURE] Zero active users found in the database. Filter sequence halted.")
+            return None
+
+        eligible_drivers = []
+
+        # 2. Loop and inspect each individual driver property
+        for driver in potential_drivers:
+            driver_str_id = str(driver.id)
+            print(f"\n--- Evaluating Driver: {driver.email} | ID: {driver_str_id} ---")
+
+            # Check A: Decline/Exclusion List Check
+            if driver_str_id in exclude_drivers:
+                print(f"   [REJECT] Driver {driver_str_id} is in the exclude_drivers list (Declined previously).")
+                continue
+            print("   [PASS] Driver is not excluded.")
+
+            # Check B: Account availability flags
+            is_online = getattr(driver, 'is_online', None)
+            is_available = getattr(driver, 'is_available', None)
+            print(f"   [DATA FIELD CHECK] is_online = {is_online} | is_available = {is_available}")
+            
+            # Un-comment or modify the condition below depending on which flag handles active shifts
+            # if not is_online or not is_available:
+            #     print("   [REJECT] Driver is marked offline or unavailable in database profile state.")
+            #     continue
+
+            # Check C: Vehicle Structure Verification
+            driver_vehicle = getattr(driver, 'vehicle', None)
+            if not driver_vehicle:
+                print("   [REJECT] Driver has no active Vehicle relationship linked in the database.")
+                continue
+            
+            driver_vehicle_type = getattr(driver_vehicle, 'vehicle_type', None)
+            print(f"   [VEHICLE CHECK] Ride Required: '{ride.vehicle_type}' | Driver Has: '{driver_vehicle_type}'")
+            
+            if str(driver_vehicle_type).strip().lower() != str(ride.vehicle_type).strip().lower():
+                print(f"   [REJECT] Vehicle type mismatch ('{driver_vehicle_type}' != '{ride.vehicle_type}').")
+                continue
+            print("   [PASS] Vehicle types match perfectly.")
+
+            # Check D: Live Tracking WebSocket Coordinates Availability
+            print("   [CACHE CHECK] Querying DriverLocationService for active live coordinate tracking state...")
+            try:
+                # Fetches live telemetry positions stored by the LocationConsumer
+                driver_location_data = DriverLocationService.get_driver_location(driver_str_id)
+                print(f"   [CACHE RESULT] Retrieved live telemetry pay-load: {driver_location_data}")
+                
+                if not driver_location_data:
+                    print("   [REJECT] Driver coordinate payload returned None. WebSocket is either not linked or cache has expired.")
+                    continue
+                
+                # Check for nested latitude/longitude coordinates safely
+                lat = driver_location_data.get('latitude') if isinstance(driver_location_data, dict) else getattr(driver_location_data, 'latitude', None)
+                lng = driver_location_data.get('longitude') if isinstance(driver_location_data, dict) else getattr(driver_location_data, 'longitude', None)
+                print(f"   [COORDINATE RESOLUTION] Latitude: {lat} | Longitude: {lng}")
+                
+                if lat is None or lng is None:
+                    print("   [REJECT] Live data exists but contains corrupt or invalid coordinates.")
+                    continue
+                    
+                driver.live_coords = (float(lat), float(lng))
+                print("   [PASS] Valid live location tracking found.")
+                
+            except Exception as e:
+                print(f"   [REJECT] Internal Exception reading tracking telemetry data: {str(e)}")
+                continue
+
+            # Check E: Distance constraints
+            try:
+                pickup_lat = ride.pickup_latitude
+                pickup_lng = ride.pickup_longitude
+                print(f"   [DISTANCE ENGINE] Ride Pickup Point: ({pickup_lat}, {pickup_lng})")
+                
+                # Simple distance calculation or use geopy if imported
+                # from geopy.distance import geodesic
+                # distance = geodesic(driver.live_coords, (pickup_lat, pickup_lng)).km
+                
+                # Fallback flat math if geopy structure isn't local
+                distance = math.sqrt((driver.live_coords[0] - float(pickup_lat))**2 + (driver.live_coords[1] - float(pickup_lng))**2)
+                print(f"   [DISTANCE ENGINE] Calculated relative proximity index: {distance}")
+                
+                # Attach distance metric temporarily to sort multiple candidates
+                driver.search_distance_metric = distance
+                eligible_drivers.append(driver)
+                print("   [STATUS] Driver added successfully to the candidate selection pool.")
+            except Exception as distance_err:
+                print(f"   [REJECT] Failed to compute distance matrix: {str(distance_err)}")
+                continue
+
+        # 3. Final Selection Sorting
+        if eligible_drivers:
+            # Sort candidate pool based on the closest calculated distance score
+            eligible_drivers.sort(key=lambda d: getattr(d, 'search_distance_metric', 999999))
+            selected_driver = eligible_drivers[0]
+            print("\n" + "="*60)
+            print(f"[MATCHING ENGINE SUCCESS] Chosen Driver: {selected_driver.email} (ID: {selected_driver.id})")
+            print("="*60 + "\n")
+            return selected_driver
+
+        print("\n" + "="*60)
+        print("[MATCHING ENGINE FAILURE] All candidates checked, 0 drivers passed filters. Returning None.")
+        print("="*60 + "\n")
         return None
    
     @transaction.atomic
