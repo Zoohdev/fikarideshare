@@ -685,6 +685,8 @@ class RideService:
                 total_available_seats = sum(r.available_seats for r in active_rides if r.ride_type == 'shared')
                 if total_available_seats <= 0:
                     print(f"DRIVER {driver_id} SKIPPED — shared ride is full")
+                    print(f"({total_available_seats} seats left)")
+
                     continue
             # ---------------
            
