@@ -204,8 +204,8 @@ class RideService:
     # otherwise a rider heading the opposite direction can match just
     # because their dropoff happens to land in the same radius.
     MAX_POOL_BEARING_DIFF_DEGREES = 45
-    MAX_POOL_PICKUP_DISTANCE_KM = 3.5
-    MAX_POOL_DROPOFF_DISTANCE_KM = 6.0
+    MAX_POOL_PICKUP_DISTANCE_KM = 5.0
+    MAX_POOL_DROPOFF_DISTANCE_KM = 8.0
     # A pool already IN_PROGRESS for longer than this is excluded from
     # matching - there's no realistic time left to detour for a new
     # pickup on a trip that's nearly done.
@@ -215,7 +215,83 @@ class RideService:
     # rather than reject a plausible match on a meaningless angle.
     MIN_BEARING_DISTANCE_METERS = 200
 
-    def find_compatible_shared_pool(self, pickup_lat: float, pickup_lng: float, dropoff_lat: float, dropoff_lng: float, required_seats: int):
+    # def find_compatible_shared_pool(self, pickup_lat: float, pickup_lng: float, dropoff_lat: float, dropoff_lng: float, required_seats: int):
+    #     """
+    #     Geospatial Convergence Matching Algorithm (Uber/Rapido Style)
+    #     Finds an active shared trip moving toward the same general destination zone.
+    #     """
+    #     from django.contrib.gis.geos import Point
+    #     from django.contrib.gis.measure import D
+    #     from django.contrib.gis.db.models.functions import Distance
+    #     from geopy.distance import geodesic
+    #     from datetime import timedelta
+
+    #     passenger_pickup = Point(pickup_lng, pickup_lat, srid=4326)
+    #     passenger_dropoff = Point(dropoff_lng, dropoff_lat, srid=4326)
+    #     passenger_bearing = _bearing_degrees(pickup_lat, pickup_lng, dropoff_lat, dropoff_lng)
+    #     passenger_trip_distance_m = geodesic((pickup_lat, pickup_lng), (dropoff_lat, dropoff_lng)).meters
+
+    #     in_progress_cutoff = timezone.now() - timedelta(minutes=self.MAX_POOL_IN_PROGRESS_MINUTES)
+
+    #     # 1. Query for rides that are shared, have seats, and are open for
+    #     # matching, within range, ordered nearest-pickup-first. IN_PROGRESS
+    #     # pools are only eligible if they started recently.
+    #     candidate_pools = Ride.objects.filter(
+    #         ride_type='shared',
+    #         pool_open=True,
+    #         available_seats__gte=required_seats,
+    #     ).filter(
+    #         Q(status__in=[Ride.Status.SEARCHING, Ride.Status.DRIVER_ASSIGNED]) |
+    #         Q(status=Ride.Status.IN_PROGRESS, started_at__gte=in_progress_cutoff)
+    #     ).filter(
+    #         pickup_location__distance_lte=(passenger_pickup, D(km=self.MAX_POOL_PICKUP_DISTANCE_KM)),
+    #         dropoff_location__distance_lte=(passenger_dropoff, D(km=self.MAX_POOL_DROPOFF_DISTANCE_KM))
+    #     ).annotate(
+    #         distance_to_pickup=Distance('pickup_location', passenger_pickup)
+    #     ).order_by('distance_to_pickup')[:10]
+
+    #     # 2. Directional alignment - reject pools heading a meaningfully
+    #     # different way even if both points fall within radius (a rider
+    #     # going the opposite direction can still land in-radius on a short
+    #     # trip). Pick the candidate whose own bearing is closest to the new
+    #     # rider's. For a pool already underway, bearing is measured from
+    #     # the driver's last known location (not the original pickup point)
+    #     # to the pool's dropoff, since that's the direction actually being
+    #     # driven right now.
+    #     best_pool = None
+    #     best_diff = None
+    #     for pool in candidate_pools:
+    #         if not pool.pickup_location or not pool.dropoff_location:
+    #             continue
+
+    #         origin_lat, origin_lng = pool.pickup_location.y, pool.pickup_location.x
+    #         if pool.status == Ride.Status.IN_PROGRESS:
+    #             latest_location = pool.location_updates.order_by('-recorded_at').first()
+    #             if latest_location:
+    #                 origin_lat, origin_lng = latest_location.location.y, latest_location.location.x
+
+    #         pool_remaining_distance_m = geodesic(
+    #             (origin_lat, origin_lng), (pool.dropoff_location.y, pool.dropoff_location.x)
+    #         ).meters
+
+    #         if (pool_remaining_distance_m < self.MIN_BEARING_DISTANCE_METERS
+    #                 or passenger_trip_distance_m < self.MIN_BEARING_DISTANCE_METERS):
+    #             diff = 0
+    #         else:
+    #             pool_bearing = _bearing_degrees(
+    #                 origin_lat, origin_lng,
+    #                 pool.dropoff_location.y, pool.dropoff_location.x,
+    #             )
+    #             diff = _bearing_difference(passenger_bearing, pool_bearing)
+
+    #         if diff > self.MAX_POOL_BEARING_DIFF_DEGREES:
+    #             continue
+    #         if best_diff is None or diff < best_diff:
+    #             best_pool, best_diff = pool, diff
+
+    #     return best_pool
+
+    def find_compatible_shared_pool(self, pickup_lat: float, pickup_lng: float, dropoff_lat: float, dropoff_lng: float, required_seats: int, user=None):
         """
         Geospatial Convergence Matching Algorithm (Uber/Rapido Style)
         Finds an active shared trip moving toward the same general destination zone.
@@ -225,6 +301,9 @@ class RideService:
         from django.contrib.gis.db.models.functions import Distance
         from geopy.distance import geodesic
         from datetime import timedelta
+        from django.db.models import Q
+
+        print(f"DEBUG: Initiating convergence match for pickup ({pickup_lat}, {pickup_lng}) to dropoff ({dropoff_lat}, {dropoff_lng}) requiring {required_seats} seat(s).")
 
         passenger_pickup = Point(pickup_lng, pickup_lat, srid=4326)
         passenger_dropoff = Point(dropoff_lng, dropoff_lat, srid=4326)
@@ -233,47 +312,63 @@ class RideService:
 
         in_progress_cutoff = timezone.now() - timedelta(minutes=self.MAX_POOL_IN_PROGRESS_MINUTES)
 
-        # 1. Query for rides that are shared, have seats, and are open for
-        # matching, within range, ordered nearest-pickup-first. IN_PROGRESS
-        # pools are only eligible if they started recently.
-        candidate_pools = Ride.objects.filter(
+        # 1. Query for shared rides with open capacity moving towards the same destination zone.
+        # Include all pre-trip statuses or recently started IN_PROGRESS trips.
+        candidate_queryset = Ride.objects.filter(
             ride_type='shared',
             pool_open=True,
             available_seats__gte=required_seats,
-        ).filter(
-            Q(status__in=[Ride.Status.SEARCHING, Ride.Status.DRIVER_ASSIGNED]) |
-            Q(status=Ride.Status.IN_PROGRESS, started_at__gte=in_progress_cutoff)
-        ).filter(
-            pickup_location__distance_lte=(passenger_pickup, D(km=self.MAX_POOL_PICKUP_DISTANCE_KM)),
             dropoff_location__distance_lte=(passenger_dropoff, D(km=self.MAX_POOL_DROPOFF_DISTANCE_KM))
-        ).annotate(
-            distance_to_pickup=Distance('pickup_location', passenger_pickup)
-        ).order_by('distance_to_pickup')[:10]
+        ).filter(
+            Q(status__in=[
+                Ride.Status.REQUESTED, 
+                Ride.Status.SEARCHING, 
+                Ride.Status.ACCEPTED,
+                Ride.Status.DRIVER_ASSIGNED, 
+                Ride.Status.DRIVER_ARRIVING, 
+                Ride.Status.ARRIVED, 
+                Ride.Status.WAITING_PICKUP
+            ], pickup_location__distance_lte=(passenger_pickup, D(km=self.MAX_POOL_PICKUP_DISTANCE_KM))) |
+            Q(status=Ride.Status.IN_PROGRESS, started_at__gte=in_progress_cutoff)
+        )
 
-        # 2. Directional alignment - reject pools heading a meaningfully
-        # different way even if both points fall within radius (a rider
-        # going the opposite direction can still land in-radius on a short
-        # trip). Pick the candidate whose own bearing is closest to the new
-        # rider's. For a pool already underway, bearing is measured from
-        # the driver's last known location (not the original pickup point)
-        # to the pool's dropoff, since that's the direction actually being
-        # driven right now.
+        # Prevent a user from matching into their own active ride request
+        if user:
+            candidate_queryset = candidate_queryset.exclude(Q(rider=user) | Q(driver=user))
+
+        candidate_pools = candidate_queryset.annotate(
+            distance_to_dropoff=Distance('dropoff_location', passenger_dropoff)
+        ).order_by('distance_to_dropoff')[:20]
+
+        print(f"DEBUG: Database returned {len(candidate_pools)} potential shared pool candidates within destination threshold.")
+
+        # 2. Directional alignment & real-time path verification
         best_pool = None
         best_diff = None
+        
         for pool in candidate_pools:
             if not pool.pickup_location or not pool.dropoff_location:
                 continue
 
             origin_lat, origin_lng = pool.pickup_location.y, pool.pickup_location.x
+            
+            # For underway pools, measure starting from the driver's current coordinates
             if pool.status == Ride.Status.IN_PROGRESS:
                 latest_location = pool.location_updates.order_by('-recorded_at').first()
                 if latest_location:
                     origin_lat, origin_lng = latest_location.location.y, latest_location.location.x
+                
+                # Check if the driver's real-time position is close enough to collect the new passenger
+                distance_to_current_driver_km = geodesic((origin_lat, origin_lng), (pickup_lat, pickup_lng)).kilometers
+                if distance_to_current_driver_km > self.MAX_POOL_PICKUP_DISTANCE_KM:
+                    print(f"DEBUG: Skipping pool {pool.id} (IN_PROGRESS) - current location too far ({distance_to_current_driver_km:.2f} km > {self.MAX_POOL_PICKUP_DISTANCE_KM} km threshold).")
+                    continue
 
             pool_remaining_distance_m = geodesic(
                 (origin_lat, origin_lng), (pool.dropoff_location.y, pool.dropoff_location.x)
             ).meters
 
+            # Skip bearing check for ultra-short remaining trajectories to avoid angle noise
             if (pool_remaining_distance_m < self.MIN_BEARING_DISTANCE_METERS
                     or passenger_trip_distance_m < self.MIN_BEARING_DISTANCE_METERS):
                 diff = 0
@@ -285,11 +380,20 @@ class RideService:
                 diff = _bearing_difference(passenger_bearing, pool_bearing)
 
             if diff > self.MAX_POOL_BEARING_DIFF_DEGREES:
+                print(f"DEBUG: Skipping pool {pool.id} - directional heading difference too high ({diff:.1f}° > {self.MAX_POOL_BEARING_DIFF_DEGREES}° restriction).")
                 continue
+                
             if best_diff is None or diff < best_diff:
                 best_pool, best_diff = pool, diff
 
+        if best_pool:
+            print(f"DEBUG: Optimized match found! Selected shared pool {best_pool.id} with minimal angular divergence of {best_diff:.1f}°.")
+        else:
+            print("DEBUG: Convergence lookup complete. No valid matching shared pools found.")
+
         return best_pool
+
+        
 
     def compute_optimized_route(self, ride: Ride, current_lat: float = None, current_lng: float = None) -> List[Dict]:
         """
