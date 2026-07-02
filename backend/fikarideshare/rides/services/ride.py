@@ -816,8 +816,8 @@ class RideService:
 
             # Check B: Account availability flags
             is_online = getattr(driver, 'is_online', None)
-            is_available = getattr(driver, 'is_available', None)
-            print(f"   [DATA FIELD CHECK] is_online = {is_online} | is_available = {is_available}")
+            is_available = getattr(driver, 'is_active', None)
+            print(f"   [DATA FIELD CHECK] is_online = {is_online} | is_active = {is_available}")
             
             # Un-comment or modify the condition below depending on which flag handles active shifts
             # if not is_online or not is_available:
