@@ -89,14 +89,19 @@ AUTH_USER_MODEL = 'users.User'
 # On Heroku, the Postgres addon injects DATABASE_URL - use it. Locally we fall
 # back to the discrete DB_* vars from .env.
 if config('DATABASE_URL', default=''):
+    # If this process is running Celery, set conn_max_age to 0 to prevent connection hogging.
+    # Otherwise, set it to 60 seconds for fast web request recycling.
+    is_celery = any('celery' in arg for arg in sys.argv)
+    max_age = 0 if is_celery else 60
+
     DATABASES = {
         'default': dj_database_url.config(
             default=config('DATABASE_URL'),
-            conn_max_age=600,
-            ssl_require=True,
+            conn_max_age=max_age,
+            ssl_require=True
         )
     }
-    # dj-database-url sets the plain postgres engine; force the GIS backend.
+    # Force the GIS engine backend
     DATABASES['default']['ENGINE'] = 'django.contrib.gis.db.backends.postgis'
 else:
     DATABASES = {
@@ -107,8 +112,32 @@ else:
             'PASSWORD': config('DB_PASSWORD'),
             'HOST': config('DB_HOST', default='localhost'),
             'PORT': config('DB_PORT', default='5432'),
+            'CONN_MAX_AGE': 60,
         }
     }
+    
+# if config('DATABASE_URL', default=''):
+#     DATABASES = {
+#         'default': dj_database_url.config(
+#             default=config('DATABASE_URL'),
+#             conn_max_age=600,
+#             ssl_require=True,
+#             'CONN_MAX_AGE': 60,
+#         )
+#     }
+#     # dj-database-url sets the plain postgres engine; force the GIS backend.
+#     DATABASES['default']['ENGINE'] = 'django.contrib.gis.db.backends.postgis'
+# else:
+#     DATABASES = {
+#         'default': {
+#             'ENGINE': 'django.contrib.gis.db.backends.postgis',
+#             'NAME': config('DB_NAME'),
+#             'USER': config('DB_USER'),
+#             'PASSWORD': config('DB_PASSWORD'),
+#             'HOST': config('DB_HOST', default='localhost'),
+#             'PORT': config('DB_PORT', default='5432'),
+#         }
+#     }
 
 
 # Redis. On Heroku a single addon provides one REDIS_URL (rediss://, db 0)
