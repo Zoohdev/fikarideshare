@@ -87,6 +87,7 @@ class RideViewSet(viewsets.ModelViewSet):
        
         data = serializer.validated_data
         ride_type = data.get('ride_type', 'standard')
+        print(f"[CREATE RIDE] user={request.user.email} ride_type={ride_type!r} passengers={data.get('passenger_count', 1)}")
         if ride_type == 'shared':
             from django.contrib.gis.geos import Point
             service = RideService()
