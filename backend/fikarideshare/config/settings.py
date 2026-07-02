@@ -301,8 +301,3 @@ if os.name == 'nt':
                 "features fail, set GDAL_LIBRARY_PATH/GEOS_LIBRARY_PATH (or "
                 "OSGEO4W_ROOT) in your own .env - see .env.example."
             )
-
-
-
-
-
