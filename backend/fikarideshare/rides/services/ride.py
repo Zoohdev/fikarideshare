@@ -518,55 +518,7 @@ class RideService:
         active_ride_error = self.check_no_active_ride(rider)
         if active_ride_error:
             return False, active_ride_error
-        if ride_type == 'shared' and not scheduled_time:
-            compatible_pool = self.find_compatible_shared_pool(
-                pickup_lat, pickup_lng, dropoff_lat, dropoff_lng, passenger_count
-            )
-            
-            if compatible_pool:
-                # Add User 2 as a RideParticipant to the existing driver's ride
-                otp_code = f"{random.randint(1000, 9999)}"
-                estimate = self.estimate_fare(pickup_lat, pickup_lng, dropoff_lat, dropoff_lng, vehicle_type, True)
-                
-                participant = RideParticipant.objects.create(
-                    ride=compatible_pool,
-                    user=rider,
-                    is_organizer=False,
-                    status=RideParticipant.Status.PENDING, # Pending driver approval
-                    pickup_location=Point(pickup_lng, pickup_lat, srid=4326),
-                    pickup_address=estimate['pickup_address'],
-                    dropoff_location=Point(dropoff_lng, dropoff_lat, srid=4326),
-                    dropoff_address=estimate['dropoff_address'],
-                    estimated_distance_meters=estimate['distance_meters'],
-                    seats_reserved=passenger_count,
-                    pickup_code=otp_code,
-                )
-                
-                # Deduct seats temporarily while pending
-                compatible_pool.available_seats -= passenger_count
-                compatible_pool.pool_open = compatible_pool.available_seats > 0
-                compatible_pool.save(update_fields=['available_seats', 'pool_open'])
 
-                # Send pool join request to the driver via channels
-                async_to_sync(self.channel_layer.group_send)(
-                    f"user_{compatible_pool.driver_id}",
-                    {
-                        "type": "pool_join_request",
-                        "participant_id": str(participant.id),
-                        "ride_id": str(compatible_pool.id),
-                        "rider_name": rider.full_name,
-                        "rider_id": str(rider.id),
-                        "pickup_address": estimate['pickup_address'],
-                        "dropoff_address": estimate['dropoff_address'],
-                        "seats": passenger_count,
-                    }
-                )
-
-                return True, {
-                    'ride_id': str(compatible_pool.id),
-                    'status': participant.status,
-                    'message': 'Requested to join shared ride'
-                }
 
         # Get fare estimate
         estimate = self.estimate_fare(
