@@ -651,7 +651,21 @@ class RideService:
             print("USER OBJECT:", user)
             print("================================")
             # Check driver doesn't have active ride
-            has_active_ride = Ride.objects.filter(
+            # has_active_ride = Ride.objects.filter(
+            #     driver_id=driver_id,
+            #     status__in=[
+            #         Ride.Status.DRIVER_ASSIGNED,
+            #         Ride.Status.DRIVER_ARRIVING,
+            #         Ride.Status.ARRIVED,
+            #         Ride.Status.IN_PROGRESS,
+            #     ]
+            # ).exists()
+           
+            # if has_active_ride:
+            #     print(f"DRIVER {driver_id} SKIPPED — has active ride")
+            #     continue
+
+            active_rides = Ride.objects.filter(
                 driver_id=driver_id,
                 status__in=[
                     Ride.Status.DRIVER_ASSIGNED,
@@ -659,11 +673,20 @@ class RideService:
                     Ride.Status.ARRIVED,
                     Ride.Status.IN_PROGRESS,
                 ]
-            ).exists()
+            )
            
-            if has_active_ride:
-                print(f"DRIVER {driver_id} SKIPPED — has active ride")
-                continue
+            if active_rides.exists():
+                # If they are on a standard (exclusive) ride, skip them entirely
+                if active_rides.filter(ride_type='standard').exists():
+                    print(f"DRIVER {driver_id} SKIPPED — has active standard ride")
+                    continue
+                
+                # If they are on a shared ride, check if they are completely out of seats
+                total_available_seats = sum(r.available_seats for r in active_rides if r.ride_type == 'shared')
+                if total_available_seats <= 0:
+                    print(f"DRIVER {driver_id} SKIPPED — shared ride is full")
+                    continue
+            # ---------------
            
             try:
                 return User.objects.get(id=driver_id)

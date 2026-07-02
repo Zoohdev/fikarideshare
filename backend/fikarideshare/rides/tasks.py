@@ -8,43 +8,82 @@ from .services.ride import RideService
 from users.models import User
 
 
+# @shared_task(bind=True, max_retries=5, default_retry_delay=30)
+# def find_and_assign_driver(self, ride_id: str):
+#     """
+#     Find and assign a driver to a ride.
+   
+#     This task runs asynchronously after a ride is created.
+#     It will retry up to 5 times with 30 second delays.
+#     """
+#     try:
+#         ride = Ride.objects.get(id=ride_id)
+#     except Ride.DoesNotExist:
+#         return
+   
+#     # Check if ride is still waiting for driver
+#     if ride.status != Ride.Status.SEARCHING:
+#         return
+   
+#     service = RideService()
+   
+#     # Get list of drivers who declined this ride
+#     # declined_drivers = list(
+#     #     ride.driver_requests.filter(
+#     #         status='declined'
+#     #     ).values_list('driver_id', flat=True)
+#     # )
+   
+#     # Find available driver
+#     # driver = service.find_available_driver(
+#     #     ride=ride,
+#     #     exclude_drivers=[str(d) for d in declined_drivers]
+#     # )
+#     # # ADD THIS INSTEAD:
+#     driver = service.find_available_driver(ride=ride, exclude_drivers=[])
+#     print("Found driver:",driver)
+#     if driver:
+#         print("ENTERED DRIVER BLOCK")
+#         # Keep ride state as searching, but ping the target driver directly via WebSockets
+#         channel_layer = get_channel_layer()
+#         async_to_sync(channel_layer.group_send)(
+#             f"user_{driver.id}",
+#             {
+#                 "type": "new_ride_request",
+#                 "data": {
+#                     "ride_id": str(ride.id),
+#                     "pickup_address": ride.pickup_address,
+#                     "dropoff_address": ride.dropoff_address,
+#                     "fare": float(ride.final_fare or ride.estimated_fare or 0),
+#                     "pickup_lat": ride.pickup_location.y,
+#                     "pickup_lng": ride.pickup_location.x,
+#                     "dropoff_lat": ride.dropoff_location.y,
+#                     "dropoff_lng": ride.dropoff_location.x,
+#                     "distance_meters": ride.estimated_distance_meters,
+#                 }
+#             }
+#         )
+#         print(f"SENDING TO GROUP: user_{driver.id}")
+#         print({
+#             "type": "new_ride_request",
+#             "data": {
+#                 "ride_id": str(ride.id)
+#             }
+# })
 @shared_task(bind=True, max_retries=5, default_retry_delay=30)
 def find_and_assign_driver(self, ride_id: str):
-    """
-    Find and assign a driver to a ride.
-   
-    This task runs asynchronously after a ride is created.
-    It will retry up to 5 times with 30 second delays.
-    """
     try:
         ride = Ride.objects.get(id=ride_id)
     except Ride.DoesNotExist:
         return
-   
-    # Check if ride is still waiting for driver
+
     if ride.status != Ride.Status.SEARCHING:
         return
-   
+
     service = RideService()
-   
-    # Get list of drivers who declined this ride
-    # declined_drivers = list(
-    #     ride.driver_requests.filter(
-    #         status='declined'
-    #     ).values_list('driver_id', flat=True)
-    # )
-   
-    # Find available driver
-    # driver = service.find_available_driver(
-    #     ride=ride,
-    #     exclude_drivers=[str(d) for d in declined_drivers]
-    # )
-    # # ADD THIS INSTEAD:
     driver = service.find_available_driver(ride=ride, exclude_drivers=[])
-    print("Found driver:",driver)
+
     if driver:
-        print("ENTERED DRIVER BLOCK")
-        # Keep ride state as searching, but ping the target driver directly via WebSockets
         channel_layer = get_channel_layer()
         async_to_sync(channel_layer.group_send)(
             f"user_{driver.id}",
@@ -60,16 +99,24 @@ def find_and_assign_driver(self, ride_id: str):
                     "dropoff_lat": ride.dropoff_location.y,
                     "dropoff_lng": ride.dropoff_location.x,
                     "distance_meters": ride.estimated_distance_meters,
-                }
-            }
+                },
+            },
         )
-        print(f"SENDING TO GROUP: user_{driver.id}")
-        print({
-            "type": "new_ride_request",
-            "data": {
-                "ride_id": str(ride.id)
-            }
-})
+        return
+
+    # No driver free right now — retry instead of dying silently.
+    if self.request.retries >= self.max_retries:
+        from notifications.services import create_notification
+        create_notification(
+            user=ride.rider,
+            notification_type='no_drivers_available',
+            title='Still looking for a driver',
+            body='No drivers are available near you right now.',
+            data={'ride_id': str(ride.id)},
+        )
+        return
+
+    raise self.retry(countdown=self.default_retry_delay)
 
 
 @shared_task
