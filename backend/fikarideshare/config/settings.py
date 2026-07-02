@@ -88,16 +88,30 @@ AUTH_USER_MODEL = 'users.User'
 # Database configuration with PostGIS.
 # On Heroku, the Postgres addon injects DATABASE_URL - use it. Locally we fall
 # back to the discrete DB_* vars from .env.
+#
+# CONN_MAX_AGE is intentionally 0 (short-lived connections) for BOTH the web
+# and celery processes here, not just celery. The "60s for fast web request
+# recycling" pattern is a WSGI/Gunicorn idea: a small fixed pool of worker
+# processes, each reusing one persistent connection across many requests.
+# This app runs on Daphne/Channels (ASGI) instead - every HTTP request and
+# every open WebSocket connection (see consumers.py's LocationConsumer,
+# which stays open for the whole ride) gets pinned to its own thread for its
+# lifetime. With CONN_MAX_AGE>0, each of those threads holds its own Postgres
+# connection open for that long after its last query instead of releasing it
+# immediately. A handful of concurrent rides (rider + driver sockets, plus
+# HTTP polling from rideTrackingScreen.js) is enough concurrent threads to
+# exceed a small Postgres connection cap - which is exactly the
+# "FATAL: too many connections for role ..." errors seen breaking
+# verify-code and smart_waypoints under load. conn_max_age=0 makes every
+# process close its connection as soon as the request/task is done, so the
+# number of simultaneously-open connections tracks actual concurrent DB work
+# instead of accumulating with every socket/request that's merely open.
 if config('DATABASE_URL', default=''):
-    # If this process is running Celery, set conn_max_age to 0 to prevent connection hogging.
-    # Otherwise, set it to 60 seconds for fast web request recycling.
-    is_celery = any('celery' in arg for arg in sys.argv)
-    max_age = 0 if is_celery else 60
-
     DATABASES = {
         'default': dj_database_url.config(
             default=config('DATABASE_URL'),
-            conn_max_age=max_age,
+            conn_max_age=0,
+            conn_health_checks=True,
             ssl_require=True
         )
     }
@@ -112,7 +126,8 @@ else:
             'PASSWORD': config('DB_PASSWORD'),
             'HOST': config('DB_HOST', default='localhost'),
             'PORT': config('DB_PORT', default='5432'),
-            'CONN_MAX_AGE': 60,
+            'CONN_MAX_AGE': 0,
+            'CONN_HEALTH_CHECKS': True,
         }
     }
     
