@@ -9,9 +9,9 @@ import {
   TouchableOpacity,
   FlatList,
   Animated,
-  StatusBar
+  StatusBar,
+  SafeAreaView
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, useNavigation } from "expo-router";

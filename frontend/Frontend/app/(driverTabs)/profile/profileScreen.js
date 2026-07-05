@@ -392,22 +392,22 @@
 // });
 
 
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useFocusEffect, useNavigation } from "expo-router";
+import * as SecureStore from "expo-secure-store";
+import React, { useCallback, useState } from "react";
 import {
+  ActivityIndicator,
+  Image,
+  Modal,
   ScrollView,
   StyleSheet,
   Text,
-  View,
-  Image,
   TouchableOpacity,
-  Modal,
-  ActivityIndicator,
+  View,
 } from "react-native";
-import React, { useState, useCallback } from "react";
-import { Colors, Fonts, Sizes, CommonStyles } from "../../../constants/styles";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
-import { useNavigation, useFocusEffect } from "@react-navigation/native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as SecureStore from "expo-secure-store";
+import { Colors, CommonStyles, Fonts, Sizes } from "../../../constants/styles";
 import { useProfile } from "../../context/ProfileContext";
 
 const ProfileScreen = () => {

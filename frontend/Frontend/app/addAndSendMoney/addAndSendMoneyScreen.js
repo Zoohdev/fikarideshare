@@ -5,6 +5,7 @@ import {
   Image,
   View,
   TextInput,
+  TouchableOpacity,
 } from "react-native";
 import React, { useState } from "react";
 import {
@@ -16,7 +17,6 @@ import {
 } from "../../constants/styles";
 import MyStatusBar from "../../components/myStatusBar";
 import Header from "../../components/header";
-import Button from "../../components/Button";
 import { useLocalSearchParams, useNavigation } from "expo-router";
 
 const AddAndSendMoneyScreen = () => {
@@ -48,15 +48,20 @@ const AddAndSendMoneyScreen = () => {
 
   function continueButton() {
     return (
-      <Button
-        title="Continue"
+      <TouchableOpacity
+        activeOpacity={0.8}
         onPress={() => {
           addFor == "money"
             ? navigation.push("paymentMethods/paymentMethodsScreen", { amount })
             : navigation.push("bankInfo/bankInfoScreen", { amount });
         }}
-        style={{ marginVertical: Sizes.fixPadding * 2.0 }}
-      />
+        style={{
+          ...CommonStyles.button,
+          marginVertical: Sizes.fixPadding * 2.0,
+        }}
+      >
+        <Text style={{ ...Fonts.whiteColor18Bold }}>Continue</Text>
+      </TouchableOpacity>
     );
   }
 

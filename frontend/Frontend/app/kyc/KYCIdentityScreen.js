@@ -5,16 +5,15 @@ import {
   View,
   TouchableOpacity,
   ActivityIndicator,
+  SafeAreaView,
   StatusBar,
   Alert,
   ScrollView,
   Dimensions,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
-import { Sizes } from "../../constants/styles";
-import Button from "../../components/Button";
+import { Colors, Sizes, Fonts, CommonStyles } from "../../constants/styles";
 import { useNavigation } from 'expo-router';
 const { width } = Dimensions.get('window');
 
@@ -194,11 +193,18 @@ export default function KYCIdentityScreen() {
           </View>
 
           {/* Core bottom layout Go Back handler */}
-          <Button
-            title="Back"
-            onPress={() => navigation.goBack()}
-            style={{ margin: Sizes.fixPadding * 2.0, width: '100%' }}
-          />
+          <TouchableOpacity
+        activeOpacity={0.8}
+        onPress={() => navigation.goBack()}
+        style={{ 
+          ...CommonStyles.button, 
+          margin: Sizes.fixPadding * 2.0,
+          backgroundColor:  Colors.secondaryColor ,
+          width:'100%'
+        }}
+      >
+        <Text style={{ ...Fonts.whiteColor18Bold }}>Back</Text>
+      </TouchableOpacity>
         </View>
       ) : (
         /* FORM INPUT SELECTION LAYOUT */

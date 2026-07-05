@@ -3,6 +3,7 @@ import {
   View,
   Text,
   StyleSheet,
+  SafeAreaView,
   TouchableOpacity,
   TextInput,
   FlatList,
@@ -10,12 +11,10 @@ import {
   Platform,
   ActivityIndicator
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { WS_BASE_URL } from "../../constants/apiConfig";
-import api from "../../services/api";
 
 const WS_BASE = `${WS_BASE_URL}/ws/tracking/`;
 
@@ -36,36 +35,18 @@ export default function RideChatScreen() {
   const CHAT_STORAGE_KEY = `@chat_history_${tripId}`;
   useEffect(() => {
     const loadChatHistory = async () => {
-      const uid = await AsyncStorage.getItem("userId");
       try {
-        // Real persisted history (ChatMessage rows) is the source of
-        // truth - AsyncStorage was previously the only cache, which meant
-        // history was lost on a fresh install/device.
-        const response = await api.get(`/rides/trips/${tripId}/chat/`);
-        const history = response.data.map((m) => ({
-          id: m.id,
-          sender: String(m.sender) === String(uid) ? myRole : (myRole === "rider" ? "driver" : "rider"),
-          text: m.message,
-          time: new Date(m.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        }));
-        setMessages(history);
-        await AsyncStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(history));
-        setTimeout(() => flatListRef.current?.scrollToEnd({ animated: false }), 200);
-      } catch (error) {
-        console.log("Could not load chat history from server, falling back to local cache", error);
-        try {
-          const storedMessages = await AsyncStorage.getItem(CHAT_STORAGE_KEY);
-          if (storedMessages) {
-            setMessages(JSON.parse(storedMessages));
-            setTimeout(() => flatListRef.current?.scrollToEnd({ animated: false }), 200);
-          }
-        } catch (cacheError) {
-          console.log("Could not load chat history from cache either", cacheError);
+        const storedMessages = await AsyncStorage.getItem(CHAT_STORAGE_KEY);
+        if (storedMessages) {
+          setMessages(JSON.parse(storedMessages));
+          setTimeout(() => flatListRef.current?.scrollToEnd({ animated: false }), 200);
         }
+      } catch (error) {
+        console.log("Could not load chat history", error);
       }
     };
     loadChatHistory();
-  }, [tripId, myRole]);
+  }, [tripId]);
 
 
   useEffect(() => {

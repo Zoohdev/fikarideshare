@@ -27,7 +27,7 @@
 // import AsyncStorage from "@react-native-async-storage/async-storage";
 // import api from "../../services/api";
 
-// const GOOGLE_MAPS_API_KEY = 'AIzaSyBGv73TlYO0vjEQlPRjEfJiC5qhzwtgTB0';
+// const GOOGLE_MAPS_API_KEY = 'AIzaSyAwM10scPwotqO_WRQDYbndfFo4fWbriXA';
 // const WS_BASE = "ws://192.168.0.105:8000/ws/tracking/";
 
 // const customMapTheme = [
@@ -477,37 +477,31 @@
 //   }
 // });
 
+import BottomSheet, { BottomSheetScrollView } from "@gorhom/bottom-sheet";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Location from "expo-location";
+import { router, useLocalSearchParams, useNavigation } from "expo-router";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
+  Alert,
+  Modal,
   StyleSheet,
   Text,
-  View,
-  Image,
-  ScrollView,
   TextInput,
   TouchableOpacity,
-  Modal,
-  Alert,
-  ActivityIndicator
+  View
 } from "react-native";
-import React, { useEffect, useState, useMemo, useRef } from "react";
-import { Colors, Fonts, Sizes, screenHeight, CommonStyles } from "../../constants/styles";
-import * as Location from "expo-location";
-import MapViewDirections from "react-native-maps-directions";
-import MaterialIcons from "react-native-vector-icons/MaterialIcons";
-import * as Animatable from "react-native-animatable";
-import MyStatusBar from "../../components/myStatusBar";
-import Header from "../../components/header";
-import DashedLine from "react-native-dashed-line";
-import { useNavigation } from "@react-navigation/native";
-import { router, useLocalSearchParams } from "expo-router";
-import Ionicons from "react-native-vector-icons/Ionicons";
-import BottomSheet, { BottomSheetScrollView } from "@gorhom/bottom-sheet";
 import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import api from "../../services/api";
-import { Key } from "../../constants/key";
-import { MAP_THEME, LIVE_TRACKING_DELTA, ROUTE_LINE_COLOR } from "../../constants/mapTheme";
+import MapViewDirections from "react-native-maps-directions";
+import Ionicons from "react-native-vector-icons/Ionicons";
+import Header from "../../components/header";
+import MyStatusBar from "../../components/myStatusBar";
 import { WS_TRACKING_URL } from "../../constants/apiConfig";
+import { Key } from "../../constants/key";
+import { LIVE_TRACKING_DELTA, MAP_THEME, ROUTE_LINE_COLOR } from "../../constants/mapTheme";
+import { Colors, CommonStyles, Fonts } from "../../constants/styles";
+import api from "../../services/api";
 import AnimatedDriverMarker from "../rideTracking/components/AnimatedDriverMarker";
 
 const GOOGLE_MAPS_API_KEY = Key.apiKey;

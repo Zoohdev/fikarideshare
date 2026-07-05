@@ -1,38 +1,36 @@
-import {
-  StyleSheet,
-  Text,
-  View,
-  Image,
-  ScrollView,
-  FlatList,
-  TouchableOpacity,
-} from "react-native";
-import React, {
-  useState,
-  useEffect,
-  useMemo,
-  useRef
-} from "react";
-import {
-  Colors,
-  Fonts,
-  Sizes,
-  screenHeight,
-  CommonStyles,
-} from "../../constants/styles";
-import MapViewDirections from "react-native-maps-directions";
-import { Key } from "../../constants/key";
-import { MAP_THEME, TRIP_OVERVIEW_DELTA } from "../../constants/mapTheme";
-import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
-import MaterialIcons from "react-native-vector-icons/MaterialIcons";
-import * as Animatable from "react-native-animatable";
-import MyStatusBar from "../../components/myStatusBar";
-import Header from "../../components/header";
-import DashedLine from "react-native-dashed-line";
-import { useNavigation, useRoute } from "@react-navigation/native";
 import BottomSheet, {
   BottomSheetScrollView
 } from "@gorhom/bottom-sheet";
+import { useNavigation, useRoute } from "expo-router";
+import React, {
+  useEffect,
+  useMemo,
+  useRef,
+  useState
+} from "react";
+import {
+  FlatList,
+  Image,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
+} from "react-native";
+import * as Animatable from "react-native-animatable";
+import DashedLine from "react-native-dashed-line";
+import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
+import MapViewDirections from "react-native-maps-directions";
+import MaterialIcons from "react-native-vector-icons/MaterialIcons";
+import Header from "../../components/header";
+import MyStatusBar from "../../components/myStatusBar";
+import { Key } from "../../constants/key";
+import { MAP_THEME, TRIP_OVERVIEW_DELTA } from "../../constants/mapTheme";
+import {
+  Colors,
+  CommonStyles,
+  Fonts,
+  Sizes
+} from "../../constants/styles";
 
 const EndRideScreen = () => {
 

@@ -1,12 +1,10 @@
-import { Tabs } from 'expo-router';
-import { Colors, Fonts, Sizes, CommonStyles, screenWidth } from "../../constants/styles";
-import { View, StyleSheet, Text, BackHandler } from "react-native";
-import { useCallback, useState,useEffect } from "react";
-import { useFocusEffect } from "@react-navigation/native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Tabs, useFocusEffect } from 'expo-router';
+import { useCallback, useEffect, useState } from "react";
+import { BackHandler, Pressable, StyleSheet, Text, View } from "react-native";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import MyStatusBar from "../../components/myStatusBar";
-import { Pressable } from 'react-native';
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Colors, CommonStyles, Fonts, Sizes, screenWidth } from "../../constants/styles";
 
 import socket from "../../services/socketService";
 

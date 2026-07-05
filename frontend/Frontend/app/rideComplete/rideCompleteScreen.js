@@ -1,10 +1,8 @@
-import { Text, View, Image, BackHandler } from "react-native";
+import { useFocusEffect, useNavigation, useRouter } from "expo-router";
 import React, { useCallback } from "react";
-import { Colors, Fonts, Sizes } from "../../constants/styles";
+import { BackHandler, Image, Text, View } from "react-native";
 import MyStatusBar from "../../components/myStatusBar";
-import { useFocusEffect } from "@react-navigation/native";
-import { useNavigation } from "@react-navigation/native";
-import { useRouter } from "expo-router";
+import { Colors, Fonts, Sizes } from "../../constants/styles";
 const RideCompleteScreen = () => {
 
   const navigation = useNavigation();

@@ -1,10 +1,8 @@
-import { Text, View, Image, BackHandler } from "react-native";
+import { useFocusEffect, useNavigation } from "expo-router";
 import React, { useCallback } from "react";
-import { Colors, Fonts, Sizes } from "../../constants/styles";
+import { BackHandler, Image, Text, View } from "react-native";
 import MyStatusBar from "../../components/myStatusBar";
-import Button from "../../components/Button";
-import { useFocusEffect } from "@react-navigation/native";
-import { useNavigation } from "expo-router";
+import { Colors, Fonts, Sizes } from "../../constants/styles";
 
 const ConfirmPoolingScreen = () => {
 
@@ -40,12 +38,16 @@ const ConfirmPoolingScreen = () => {
 
   function backToHome() {
     return (
-      <Button
-        title="Back to home"
-        variant="outline"
+      <Text
         onPress={() => { navigation.push("(tabs)") }}
-        style={{ marginBottom: Sizes.fixPadding * 3.0 }}
-      />
+        style={{
+          ...Fonts.primaryColor16SemiBold,
+          margin: Sizes.fixPadding * 2.0,
+          alignSelf: "center",
+        }}
+      >
+        Back to home
+      </Text>
     );
   }
 

@@ -1,43 +1,21 @@
-import { StyleSheet, Text, View, Image } from "react-native";
+import { useNavigation } from "expo-router";
 import React, { useEffect } from "react";
-import { Colors, Fonts, Sizes, screenWidth } from "../constants/styles";
+import { Image, StyleSheet, View } from "react-native";
 import MyStatusBar from "../components/myStatusBar";
-import { useRouter } from "expo-router";
-import * as SecureStore from "expo-secure-store";
-import api from "../services/api";
-import { getPostAuthRoute } from "../services/postAuthRoute";
-import { useProfile } from "./context/ProfileContext";
+import { Colors, Sizes } from "../constants/styles";
 
 const SplashScreen = () => {
-  const router = useRouter();
-  const { setProfileData } = useProfile();
+
+  const navigation = useNavigation();
 
   useEffect(() => {
-    const resume = async () => {
-      const token = await SecureStore.getItemAsync("userToken");
-      if (!token) {
-        router.replace("/onboarding/onboardingScreen");
-        return;
-      }
-
-      let profile;
-      try {
-        const profileRes = await api.get("/users/profile/");
-        profile = profileRes.data;
-        setProfileData(profile);
-      } catch (err) {
-        // Interceptor already tried refreshing the token - if we're still
-        // here, the session is genuinely gone.
-        router.replace("/onboarding/onboardingScreen");
-        return;
-      }
-
-      router.replace(await getPostAuthRoute(profile));
-    };
-
-    const timer = setTimeout(resume, 1200);
-    return () => clearTimeout(timer);
-  }, []);
+    const timer = setTimeout(() => {
+      navigation.push("onboarding/onboardingScreen");
+    }, 2000);
+    return () => {
+      clearTimeout(timer);
+    }
+  }, [])
 
   return (
     <View style={{ flex: 1, backgroundColor: Colors.primaryColor }}>
@@ -52,7 +30,7 @@ const SplashScreen = () => {
     return (
       <View style={{ margin: Sizes.fixPadding * 2.0, alignItems: "center" }}>
         <Image
-          source={require("../assets/images/FIKA_ppLogo.png")}
+          source={require("../assets/images/FIKA_ppLogo.jpeg")}
           style={styles.appIcon}
         />
         {/* <Text style={{ ...Fonts.whiteColor28SemiBold }}>Fika</Text> */}

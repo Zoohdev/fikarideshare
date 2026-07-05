@@ -1,16 +1,15 @@
 import React, { useState } from "react";
 
 import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  TextInput,
   Alert,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 
-import { useRoute } from "@react-navigation/native";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useRoute } from "expo-router";
 
 import Header from "../../components/header";
 import MyStatusBar from "../../components/myStatusBar";

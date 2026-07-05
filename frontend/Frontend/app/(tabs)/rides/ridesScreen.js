@@ -1,20 +1,20 @@
+import { useIsFocused } from "@react-navigation/native";
+import { useNavigation } from "expo-router";
+import React, { useCallback, useEffect, useState } from "react";
 import {
+  ActivityIndicator,
   FlatList,
+  Image,
+  RefreshControl,
+  SafeAreaView,
   StyleSheet,
   Text,
-  View,
-  Image,
   TouchableOpacity,
-  ActivityIndicator,
-  RefreshControl,
+  View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import React, { useEffect, useState, useCallback } from "react";
-import { Colors, Sizes, Fonts, CommonStyles } from "../../../constants/styles";
-import MaterialIcons from "react-native-vector-icons/MaterialIcons";
 import Ionicons from "react-native-vector-icons/Ionicons";
-import { useNavigation } from "expo-router";
-import { useIsFocused } from "@react-navigation/native";
+import MaterialIcons from "react-native-vector-icons/MaterialIcons";
+import { Colors, CommonStyles, Fonts, Sizes } from "../../../constants/styles";
 import api from "../../../services/api";
 
 const RidesScreen = () => {

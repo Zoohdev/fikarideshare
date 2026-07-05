@@ -1,11 +1,9 @@
-import { Tabs } from 'expo-router';
-import { Colors, Fonts, Sizes, CommonStyles, screenWidth } from "../../constants/styles";
-import { View, StyleSheet, Text, BackHandler } from "react-native";
+import { Tabs, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from "react";
-import { useFocusEffect } from "@react-navigation/native";
+import { BackHandler, Pressable, StyleSheet, Text, View } from "react-native";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import MyStatusBar from "../../components/myStatusBar";
-import { Pressable } from 'react-native';
+import { Colors, CommonStyles, Fonts, Sizes, screenWidth } from "../../constants/styles";
 
 export default function TabLayout() {
 

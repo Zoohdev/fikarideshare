@@ -1,100 +1,153 @@
-import { Text, View, FlatList, ActivityIndicator } from "react-native";
-import React, { useCallback, useEffect, useState } from "react";
+import { Text, View, FlatList } from "react-native";
+import React from "react";
 import MyStatusBar from "../../components/myStatusBar";
 import Header from "../../components/header";
 import { Colors, Fonts, Sizes, CommonStyles } from "../../constants/styles";
 import { useNavigation } from "expo-router";
-import { useIsFocused } from "@react-navigation/native";
-import api from "../../services/api";
 
-const SOURCE_LABELS = {
-  topup: "Wallet top-up",
-  ride_payment: "Ride payment",
-  refund: "Refund",
-  promotion: "Promotion",
-  referral: "Referral bonus",
-};
+const transactionsList = [
+  {
+    id: "1",
+    title: "Paid to rider",
+    date: "25 jan 2023",
+    amount: "$24.00",
+    isIncome: false,
+  },
+  {
+    id: "2",
+    title: "Add to wallet",
+    date: "25 jan 2023",
+    amount: "$30.00",
+    isIncome: true,
+  },
+  {
+    id: "3",
+    title: "Receive from ride taker",
+    date: "25 jan 2023",
+    amount: "$10.00",
+    isIncome: true,
+  },
+  {
+    id: "4",
+    title: "Paid to rider",
+    date: "25 jan 2023",
+    amount: "$15.00",
+    isIncome: false,
+  },
+  {
+    id: "5",
+    title: "Add ro wallet",
+    date: "25 jan 2023",
+    amount: "$30.00",
+    isIncome: true,
+  },
+  {
+    id: "6",
+    title: "Paid to rider",
+    date: "25 jan 2023",
+    amount: "$10.00",
+    isIncome: false,
+  },
+  {
+    id: "7",
+    title: "Receive from ride taker",
+    date: "25 jan 2023",
+    amount: "$150.00",
+    isIncome: true,
+  },
+  {
+    id: "8",
+    title: "Receive from ride taker",
+    date: "25 jan 2023",
+    amount: "$20.00",
+    isIncome: true,
+  },
+  {
+    id: "9",
+    title: "Paid to rider",
+    date: "25 jan 2023",
+    amount: "$25.00",
+    isIncome: false,
+  },
+  {
+    id: "10",
+    title: "Receive from ride taker",
+    date: "25 jan 2023",
+    amount: "$24.00",
+    isIncome: true,
+  },
+  {
+    id: "11",
+    title: "Paid to rider",
+    date: "25 jan 2023",
+    amount: "$24.00",
+    isIncome: false,
+  },
+  {
+    id: "12",
+    title: "Receive from ride taker",
+    date: "25 jan 2023",
+    amount: "$24.00",
+    isIncome: true,
+  },
+];
 
 const TransactionsScreen = () => {
+
   const navigation = useNavigation();
-  const isFocused = useIsFocused();
-  const [transactions, setTransactions] = useState([]);
-  const [currency, setCurrency] = useState("USD");
-  const [loading, setLoading] = useState(true);
-
-  const fetchTransactions = useCallback(() => {
-    setLoading(true);
-    api
-      .get("/payments/wallet/")
-      .then((response) => {
-        setTransactions(response.data?.transactions || []);
-        setCurrency(response.data?.currency || "USD");
-      })
-      .catch((error) => console.error("Error fetching transactions:", error))
-      .finally(() => setLoading(false));
-  }, []);
-
-  useEffect(() => {
-    if (isFocused) fetchTransactions();
-  }, [isFocused, fetchTransactions]);
 
   return (
     <View style={{ flex: 1, backgroundColor: Colors.bodyBackColor }}>
       <MyStatusBar />
       <View style={{ flex: 1 }}>
-        <Header title={"Transactions"} navigation={navigation} />
-        {loading ? (
-          <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-            <ActivityIndicator size="large" color={Colors.primaryColor} />
-          </View>
-        ) : transactions.length === 0 ? (
-          <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-            <Text style={{ ...Fonts.grayColor16SemiBold }}>No transactions yet</Text>
-          </View>
-        ) : (
-          transactionInfo()
-        )}
+        <Header title={"Transaction"} navigation={navigation} />
+        {transactionInfo()}
       </View>
     </View>
   );
 
   function transactionInfo() {
-    const renderItem = ({ item, index }) => {
-      const isIncome = item.transaction_type === "credit" || item.transaction_type === "release";
-      return (
-        <View style={{ marginHorizontal: Sizes.fixPadding * 2.0 }}>
-          <View style={{ ...CommonStyles.rowAlignCenter }}>
-            <View style={{ flex: 1 }}>
-              <Text numberOfLines={1} style={{ ...Fonts.blackColor15SemiBold }}>
-                {item.description || SOURCE_LABELS[item.source] || item.source}
-              </Text>
-              <Text
-                numberOfLines={1}
-                style={{ ...Fonts.grayColor13SemiBold, marginTop: Sizes.fixPadding - 7.0 }}
-              >
-                {new Date(item.created_at).toLocaleDateString()}
-              </Text>
-            </View>
-            <Text style={isIncome ? { ...Fonts.greenColor16SemiBold } : { ...Fonts.redColor16SemiBold }}>
-              {isIncome ? "+" : "-"}
-              {currency} {Number(item.amount).toFixed(2)}
+    const renderItem = ({ item, index }) => (
+      <View style={{ marginHorizontal: Sizes.fixPadding * 2.0 }}>
+        <View style={{ ...CommonStyles.rowAlignCenter }}>
+          <View style={{ flex: 1 }}>
+            <Text numberOfLines={1} style={{ ...Fonts.blackColor15SemiBold }}>
+              {item.title}
+            </Text>
+            <Text
+              numberOfLines={1}
+              style={{
+                ...Fonts.grayColor13SemiBold,
+                marginTop: Sizes.fixPadding - 7.0,
+              }}
+            >
+              Jenny wilsom | {item.date}
             </Text>
           </View>
-          {index === transactions.length - 1 ? null : (
-            <View
-              style={{
-                backgroundColor: Colors.borderColor,
-                height: 1.0,
-                marginVertical: Sizes.fixPadding * 2.0,
-              }}
-            />
-          )}
+          <Text
+            style={
+              item.isIncome
+                ? { ...Fonts.greenColor16SemiBold }
+                : { ...Fonts.redColor16SemiBold }
+            }
+          >
+            {item.amount}
+          </Text>
         </View>
-      );
-    };
+        {index == transactionsList.length - 1 ? null : (
+          <View
+            style={{
+              backgroundColor: Colors.grayColor,
+              height: 1.0,
+              marginVertical: Sizes.fixPadding * 2.0,
+            }}
+          />
+        )}
+      </View>
+    );
     return (
       <FlatList
-        data={transactions}
+        data={transactionsList}
         keyExtractor={(item) => `${item.id}`}
         renderItem={renderItem}
         showsVerticalScrollIndicator={false}

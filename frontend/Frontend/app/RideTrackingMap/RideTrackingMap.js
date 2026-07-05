@@ -20,7 +20,7 @@
 // import * as Location from "expo-location";
 // import api from "../../services/api";
 
-// const GOOGLE_MAPS_API_KEY = 'AIzaSyBGv73TlYO0vjEQlPRjEfJiC5qhzwtgTB0';
+// const GOOGLE_MAPS_API_KEY = 'AIzaSyAwM10scPwotqO_WRQDYbndfFo4fWbriXA';
 // const WS_BASE = "ws://192.168.0.105:8000/ws/tracking/";
 
 // const customMapTheme = [

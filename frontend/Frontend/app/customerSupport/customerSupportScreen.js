@@ -1,13 +1,14 @@
 import {
   ScrollView,
+  StyleSheet,
   Text,
   Image,
   View,
-  Linking,
-  Alert,
+  TextInput,
+  Platform,
   TouchableOpacity,
 } from "react-native";
-import React, { useState } from "react";
+import React from "react";
 import {
   Colors,
   screenWidth,
@@ -17,39 +18,12 @@ import {
 } from "../../constants/styles";
 import MyStatusBar from "../../components/myStatusBar";
 import Header from "../../components/header";
-import TextField from "../../components/TextField";
-import Button from "../../components/Button";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import { useNavigation } from "expo-router";
-import api from "../../services/api";
-
-const SUPPORT_PHONE = "+27800000000";
-const SUPPORT_EMAIL = "support@fika.app";
 
 const CustomerSupportScreen = () => {
+
   const navigation = useNavigation();
-  const [subject, setSubject] = useState("");
-  const [message, setMessage] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-
-  const handleSubmit = async () => {
-    if (!subject.trim() || !message.trim()) {
-      Alert.alert("Missing details", "Please fill in a subject and your message.");
-      return;
-    }
-
-    setSubmitting(true);
-    try {
-      await api.post("/support/tickets/", { subject, message });
-      Alert.alert("Sent", "Your message has been sent to our support team.", [
-        { text: "OK", onPress: () => navigation.pop() },
-      ]);
-    } catch (error) {
-      Alert.alert("Couldn't send", error.response?.data?.error || "Please try again later.");
-    } finally {
-      setSubmitting(false);
-    }
-  };
 
   return (
     <View style={{ flex: 1, backgroundColor: Colors.bodyBackColor }}>
@@ -60,40 +34,108 @@ const CustomerSupportScreen = () => {
           showsVerticalScrollIndicator={false}
           automaticallyAdjustKeyboardInsets={true}
         >
-          {contactInfo()}
+          {constactInfo()}
           {callAndMailButton()}
-
-          <View style={{ margin: Sizes.fixPadding * 2.0 }}>
-            <Text style={{ ...Fonts.blackColor15SemiBold, marginBottom: Sizes.fixPadding }}>
-              Subject
-            </Text>
-            <TextField placeholder="What's this about?" value={subject} onChangeText={setSubject} />
-          </View>
-
-          <View style={{ marginHorizontal: Sizes.fixPadding * 2.0 }}>
-            <Text style={{ ...Fonts.blackColor15SemiBold, marginBottom: Sizes.fixPadding }}>
-              Message
-            </Text>
-            <TextField
-              placeholder="Write your message"
-              value={message}
-              onChangeText={setMessage}
-              multiline
-              numberOfLines={5}
-              textAlignVertical="top"
-              containerStyle={{ minHeight: 120 }}
-            />
-          </View>
+          {nameInfo()}
+          {emailInfo()}
+          {messageInfo()}
         </ScrollView>
       </View>
-      <Button
-        title="Submit"
-        onPress={handleSubmit}
-        loading={submitting}
-        style={{ margin: Sizes.fixPadding * 2.0 }}
-      />
+      {submitButton()}
     </View>
   );
+
+  function submitButton() {
+    return (
+      <TouchableOpacity
+        activeOpacity={0.8}
+        onPress={() => { navigation.pop() }}
+        style={{ ...CommonStyles.button, margin: Sizes.fixPadding * 2.0 }}
+      >
+        <Text style={{ ...Fonts.whiteColor18Bold }}>Submit</Text>
+      </TouchableOpacity>
+    );
+  }
+
+  function messageInfo() {
+    return (
+      <View style={{ margin: Sizes.fixPadding * 2.0 }}>
+        <Text
+          style={{
+            ...Fonts.blackColor15SemiBold,
+            marginBottom: Sizes.fixPadding,
+          }}
+        >
+          Message
+        </Text>
+        <View style={styles.valueBox}>
+          <TextInput
+            placeholder="Write your message"
+            style={{
+              ...Fonts.blackColor15Medium,
+              padding: 0,
+              height: 100.0,
+            }}
+            placeholderTextColor={Colors.grayColor}
+            selectionColor={Colors.primaryColor}
+            cursorColor={Colors.primaryColor}
+            multiline={true}
+            numberOfLines={5}
+            textAlignVertical="top"
+          />
+        </View>
+      </View>
+    );
+  }
+
+  function emailInfo() {
+    return (
+      <View style={{ marginHorizontal: Sizes.fixPadding * 2.0 }}>
+        <Text
+          style={{
+            ...Fonts.blackColor15SemiBold,
+            marginBottom: Sizes.fixPadding,
+          }}
+        >
+          Email address
+        </Text>
+        <View style={styles.valueBox}>
+          <TextInput
+            placeholder="Enter your email address"
+            style={styles.textFieldStyle}
+            placeholderTextColor={Colors.grayColor}
+            selectionColor={Colors.primaryColor}
+            cursorColor={Colors.primaryColor}
+            keyboardType="email-address"
+          />
+        </View>
+      </View>
+    );
+  }
+
+  function nameInfo() {
+    return (
+      <View style={{ margin: Sizes.fixPadding * 2.0 }}>
+        <Text
+          style={{
+            ...Fonts.blackColor15SemiBold,
+            marginBottom: Sizes.fixPadding,
+          }}
+        >
+          Name
+        </Text>
+        <View style={styles.valueBox}>
+          <TextInput
+            placeholder="Enter your name"
+            style={styles.textFieldStyle}
+            placeholderTextColor={Colors.grayColor}
+            selectionColor={Colors.primaryColor}
+            cursorColor={Colors.primaryColor}
+          />
+        </View>
+      </View>
+    );
+  }
 
   function callAndMailButton() {
     return (
@@ -104,36 +146,57 @@ const CustomerSupportScreen = () => {
           marginHorizontal: Sizes.fixPadding,
         }}
       >
-        <TouchableOpacity
-          style={styles.callAndMailButtonStyle}
-          onPress={() => Linking.openURL(`tel:${SUPPORT_PHONE}`)}
-        >
+        <View style={styles.callAndMailButtonStyle}>
           <Ionicons name="call-outline" color={Colors.primaryColor} size={20} />
-          <Text numberOfLines={1} style={{ marginLeft: Sizes.fixPadding, ...Fonts.primaryColor16SemiBold }}>
+          <Text
+            numberOfLines={1}
+            style={{
+              marginLeft: Sizes.fixPadding,
+              ...Fonts.primaryColor16SemiBold,
+            }}
+          >
             Call us
           </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.callAndMailButtonStyle}
-          onPress={() => Linking.openURL(`mailto:${SUPPORT_EMAIL}`)}
-        >
+        </View>
+        <View style={styles.callAndMailButtonStyle}>
           <Ionicons name="mail-outline" color={Colors.primaryColor} size={20} />
-          <Text numberOfLines={1} style={{ marginLeft: Sizes.fixPadding, ...Fonts.primaryColor16SemiBold }}>
+          <Text
+            numberOfLines={1}
+            style={{
+              marginLeft: Sizes.fixPadding,
+              ...Fonts.primaryColor16SemiBold,
+            }}
+          >
             Mail us
           </Text>
-        </TouchableOpacity>
+        </View>
       </View>
     );
   }
 
-  function contactInfo() {
+  function constactInfo() {
     return (
-      <View style={{ alignItems: "center", justifyContent: "center", margin: Sizes.fixPadding * 3.0 }}>
+      <View
+        style={{
+          alignItems: "center",
+          justifyContent: "center",
+          margin: Sizes.fixPadding * 3.0,
+        }}
+      >
         <Image
           source={require("../../assets/images/customer_support.png")}
-          style={{ width: screenWidth / 4.5, height: screenWidth / 4.5, resizeMode: "contain" }}
+          style={{
+            width: screenWidth / 4.5,
+            height: screenWidth / 4.5,
+            resizeMode: "contain",
+          }}
         />
-        <Text style={{ ...Fonts.blackColor18SemiBold, marginTop: Sizes.fixPadding * 2.0 }}>
+        <Text
+          style={{
+            ...Fonts.blackColor18SemiBold,
+            marginTop: Sizes.fixPadding * 2.0,
+          }}
+        >
           Get in touch
         </Text>
       </View>
@@ -143,13 +206,27 @@ const CustomerSupportScreen = () => {
 
 export default CustomerSupportScreen;
 
-const styles = {
+const styles = StyleSheet.create({
+  valueBox: {
+    backgroundColor: Colors.whiteColor,
+    paddingHorizontal: Sizes.fixPadding,
+    paddingVertical: Sizes.fixPadding + 5.0,
+    ...CommonStyles.shadow,
+    borderRadius: Sizes.fixPadding,
+  },
   callAndMailButtonStyle: {
     flex: 1,
-    ...CommonStyles.card,
+    ...CommonStyles.shadow,
     ...CommonStyles.rowAlignCenter,
+    backgroundColor: Colors.whiteColor,
+    borderRadius: Sizes.fixPadding,
     padding: Sizes.fixPadding + 5.0,
     justifyContent: "center",
     marginHorizontal: Sizes.fixPadding,
   },
-};
+  textFieldStyle: {
+    ...Fonts.blackColor15Medium,
+    height: 20.0,
+    padding: 0,
+  },
+});

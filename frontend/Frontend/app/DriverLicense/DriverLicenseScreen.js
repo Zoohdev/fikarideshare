@@ -6,13 +6,13 @@ import {
   TextInput,
   TouchableOpacity,
   ActivityIndicator,
+  SafeAreaView,
   StatusBar,
   Alert,
   ScrollView,
   Dimensions,
   Image,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import api from '../../services/api';
@@ -205,7 +205,7 @@ export default function DriverLicenseScreen() {
       <StatusBar barStyle="dark-content" backgroundColor={COLORS.background} />
       
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Driver&apos;s License</Text>
+        <Text style={styles.headerTitle}>Driver's License</Text>
         <Text style={styles.headerSubtitle}>Professional operating credentials</Text>
       </View>
 

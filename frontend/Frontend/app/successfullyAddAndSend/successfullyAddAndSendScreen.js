@@ -1,16 +1,14 @@
+import { useFocusEffect, useLocalSearchParams, useNavigation } from "expo-router";
+import React, { useCallback } from "react";
 import {
+  BackHandler,
+  Image,
   StyleSheet,
   Text,
   View,
-  Image,
-  BackHandler,
 } from "react-native";
-import React, { useCallback } from "react";
-import { Colors, Sizes, Fonts } from "../../constants/styles";
 import MyStatusBar from "../../components/myStatusBar";
-import Button from "../../components/Button";
-import { useFocusEffect } from "@react-navigation/native";
-import { useLocalSearchParams, useNavigation } from "expo-router";
+import { Colors, Fonts, Sizes } from "../../constants/styles";
 
 const SuccessfullyAddAndSendScreen = () => {
 
@@ -42,12 +40,18 @@ const SuccessfullyAddAndSendScreen = () => {
 
   function backToHome() {
     return (
-      <Button
-        title="Back to home"
-        variant="outline"
-        onPress={() => navigation.push("(tabs)")}
-        style={{ marginBottom: Sizes.fixPadding * 3.0 }}
-      />
+      <Text
+        onPress={() => {
+          navigation.push("(tabs)");
+        }}
+        style={{
+          ...Fonts.primaryColor16SemiBold,
+          margin: Sizes.fixPadding * 2.0,
+          alignSelf: "center",
+        }}
+      >
+        Back to home
+      </Text>
     );
   }
 
@@ -64,7 +68,7 @@ const SuccessfullyAddAndSendScreen = () => {
             marginTop: Sizes.fixPadding + 8.0,
           }}
         >
-          ${Number(amount || 0).toFixed(2)} {successFor == "money" ? "added" : "sent"}
+          ${Number(amount || 0).toFixed(2)} {successFor == "money" ? "added" : "sended"}
         </Text>
         <Text
           style={{

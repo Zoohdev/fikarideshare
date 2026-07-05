@@ -1,25 +1,24 @@
+import * as ImagePicker from "expo-image-picker";
+import { useNavigation } from "expo-router";
+import React, { useState } from "react";
 import {
+  ActivityIndicator,
+  Alert,
+  Image,
+  Modal,
   ScrollView,
   StyleSheet,
   Text,
-  View,
   TextInput,
   TouchableOpacity,
-  Modal,
-  Alert,
-  ActivityIndicator,
-  Image,
+  View,
 } from "react-native";
-import React, { useState } from "react";
-import { Colors, Sizes, Fonts, CommonStyles } from "../../constants/styles";
-import MyStatusBar from "../../components/myStatusBar";
-import Header from "../../components/header";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import MaterialIcons from "react-native-vector-icons/MaterialIcons";
-import { useNavigation } from "@react-navigation/native";
-import * as ImagePicker from "expo-image-picker";
+import Header from "../../components/header";
+import MyStatusBar from "../../components/myStatusBar";
+import { Colors, CommonStyles, Fonts, Sizes } from "../../constants/styles";
 import api from "../../services/api";
-import Button from "../../components/Button";
 
 const AddVehicleScreen = () => {
   const navigation = useNavigation();
@@ -55,8 +54,8 @@ const AddVehicleScreen = () => {
     { label: "Economy", value: "economy" },
     { label: "Comfort", value: "comfort" },
     { label: "Premium", value: "premium" },
-    { label: "XL (6+ Seats)", value: "xl" },
-    { label: "Electric", value: "electric" },
+    // { label: "XL (6+ Seats)", value: "xl" },
+    // { label: "Electric", value: "electric" },
   ];
 
   const pickImage = async (useCamera = false) => {
@@ -290,12 +289,9 @@ const AddVehicleScreen = () => {
 
   function addButton() {
     return (
-      <Button
-        title="Complete Registration"
-        onPress={handleAddVehicle}
-        loading={isLoading}
-        style={{ marginVertical: Sizes.fixPadding * 2.0 }}
-      />
+      <TouchableOpacity activeOpacity={0.8} onPress={handleAddVehicle} disabled={isLoading} style={{ ...CommonStyles.button, marginVertical: Sizes.fixPadding * 2.0 }}>
+        <Text style={{ ...Fonts.whiteColor18Bold }}>Complete Registration</Text>
+      </TouchableOpacity>
     );
   }
 

@@ -1,5 +1,5 @@
-import { StyleSheet, View, Animated, Image, Text, ActivityIndicator } from "react-native";
-import React, { useState, useRef, useCallback } from "react";
+import { StyleSheet, View, Animated, Image, Text } from "react-native";
+import React, { useState, useRef } from "react";
 import {
   Colors,
   CommonStyles,
@@ -9,55 +9,46 @@ import {
 } from "../../constants/styles";
 import MaterialIcons from "react-native-vector-icons/MaterialIcons";
 import { SwipeListView } from "react-native-swipe-list-view";
+// import { Snackbar } from "react-native-paper";
 import Header from "../../components/header";
 import MyStatusBar from "../../components/myStatusBar";
 import { useNavigation } from "expo-router";
-import { useFocusEffect } from "@react-navigation/native";
-import api from "../../services/api";
+
+const notificatiosList = [
+  {
+    key: "1",
+    title: "Accept ride request",
+    description: "Congratulation jecob johan accept your ride request",
+    time: "2min ago",
+  },
+  {
+    key: "2",
+    title: "Decline ride request",
+    description: "Jenny wisdom decline your ride request. find new ride.",
+    time: "2min ago",
+  },
+  {
+    key: "3",
+    title: "Add money",
+    description: "Congratulation $10.00 successfully added in your wallet.",
+    time: "2min ago",
+  },
+  {
+    key: "4",
+    title: "Accept request",
+    description: "Congratulation jecob johan accept your ride request",
+    time: "2min ago",
+  },
+];
 
 const rowTranslateAnimatedValues = {};
 
-const TYPE_ICON = {
-  ride_accepted: "directions-car",
-  ride_completed: "check-circle-outline",
-  ride_cancelled: "cancel",
-  payment_completed: "payments",
-  payout_completed: "account-balance",
-};
-
-function timeAgo(isoDate) {
-  const seconds = Math.floor((Date.now() - new Date(isoDate).getTime()) / 1000);
-  if (seconds < 60) return "Just now";
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}min ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
-}
-
 const NotificationsScreen = () => {
+
   const navigation = useNavigation();
 
-  const [loading, setLoading] = useState(true);
-  const [listData, setListData] = useState([]);
-
-  const fetchNotifications = useCallback(() => {
-    setLoading(true);
-    api
-      .get("/notifications/")
-      .then((response) => {
-        const results = response.data?.results || [];
-        setListData(results.map((n) => ({ key: n.id, ...n })));
-      })
-      .catch((error) => console.error("Error fetching notifications:", error))
-      .finally(() => setLoading(false));
-  }, []);
-
-  useFocusEffect(
-    useCallback(() => {
-      fetchNotifications();
-    }, [fetchNotifications])
-  );
+  const [showSnackBar, setShowSnackBar] = useState(false);
+  const [listData, setListData] = useState(notificatiosList);
 
   Array(listData.length + 1)
     .fill("")
@@ -72,16 +63,9 @@ const NotificationsScreen = () => {
       <MyStatusBar />
       <View style={{ flex: 1 }}>
         <Header title={"Notification"} navigation={navigation} />
-        {loading ? (
-          <View style={styles.noNotificationPage}>
-            <ActivityIndicator size="large" color={Colors.primaryColor} />
-          </View>
-        ) : listData.length == 0 ? (
-          noNotificationInfo()
-        ) : (
-          notificationsInfo()
-        )}
+        {listData.length == 0 ? noNotificationInfo() : notificationsInfo()}
       </View>
+      {snackBar()}
     </View>
   );
 
@@ -104,6 +88,44 @@ const NotificationsScreen = () => {
     );
   }
 
+  // function snackBar() {
+  //   return (
+  //     <Snackbar
+  //       style={{ backgroundColor: Colors.blackColor }}
+  //       elevation={0}
+  //       visible={showSnackBar}
+  //       onDismiss={() => setShowSnackBar(false)}
+  //     >
+  //       <Text style={{ ...Fonts.whiteColor14Medium }}>
+  //         Notification Dismissed!
+  //       </Text>
+  //     </Snackbar>
+  //   );
+  // }
+
+  function snackBar() {
+    if (!showSnackBar) return null;
+  
+    return (
+      <View
+        style={{
+          position: "absolute",
+          bottom: 30,
+          left: 20,
+          right: 20,
+          backgroundColor: Colors.blackColor,
+          padding: 12,
+          borderRadius: 8,
+          alignItems: "center",
+        }}
+      >
+        <Text style={{ ...Fonts.whiteColor14Medium }}>
+          Notification Dismissed!
+        </Text>
+      </View>
+    );
+  }
+
   function notificationsInfo() {
     const onSwipeValueChange = (swipeData) => {
       const { key, value } = swipeData;
@@ -121,7 +143,7 @@ const NotificationsScreen = () => {
           const prevIndex = listData.findIndex((item) => item.key === key);
           newData.splice(prevIndex, 1);
           setListData(newData);
-          api.post(`/notifications/${key}/read/`).catch(() => {});
+          setShowSnackBar(true);
           animationIsRunning.current = false;
         });
       }
@@ -139,7 +161,7 @@ const NotificationsScreen = () => {
             <View style={{ ...CommonStyles.rowAlignCenter }}>
               <View style={{ ...CommonStyles.shadow, ...styles.iconWrapStyle }}>
                 <MaterialIcons
-                  name={TYPE_ICON[data.item.type] || "notifications-none"}
+                  name="notifications-none"
                   size={22}
                   color={Colors.secondaryColor}
                 />
@@ -158,9 +180,9 @@ const NotificationsScreen = () => {
                     ...Fonts.blackColor14Medium,
                   }}
                 >
-                  {data.item.body}
+                  {data.item.description}
                 </Text>
-                <Text style={{ ...Fonts.grayColor14SemiBold }}>{timeAgo(data.item.created_at)}</Text>
+                <Text style={{ ...Fonts.grayColor14SemiBold }}>2min ago</Text>
               </View>
             </View>
           </View>
@@ -174,7 +196,7 @@ const NotificationsScreen = () => {
       </View>
     );
 
-    const renderHiddenItem = () => <View style={styles.rowBack} />;
+    const renderHiddenItem = (data) => <View style={styles.rowBack} />;
 
     return (
       <SwipeListView

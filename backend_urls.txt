@@ -1,0 +1,33 @@
+FIKA RIDESHARE - DEPLOYED BACKEND URLS
+Heroku app: fika-rideshare-api
+Host: fika-rideshare-api-90ac04a02a1f.herokuapp.com
+=======================================================
+
+apiConfig.js CONSTANTS (production values)
+-------------------------------------------------------
+API_HOST         = fika-rideshare-api-90ac04a02a1f.herokuapp.com
+API_BASE_URL     = https://fika-rideshare-api-90ac04a02a1f.herokuapp.com/api
+WS_BASE_URL      = wss://fika-rideshare-api-90ac04a02a1f.herokuapp.com
+WS_TRACKING_URL  = wss://fika-rideshare-api-90ac04a02a1f.herokuapp.com/ws/tracking/
+WS_SOS_BASE_URL  = wss://fika-rideshare-api-90ac04a02a1f.herokuapp.com/ws/safety/sos/
+
+WEBSOCKET ENDPOINTS (rides/routing.py)
+-------------------------------------------------------
+Location / tracking / matching:
+  wss://fika-rideshare-api-90ac04a02a1f.herokuapp.com/ws/tracking/
+SOS tracking (append <sos_id>/):
+  wss://fika-rideshare-api-90ac04a02a1f.herokuapp.com/ws/safety/sos/<sos_id>/
+
+OTHER
+-------------------------------------------------------
+Site root:  https://fika-rideshare-api-90ac04a02a1f.herokuapp.com/
+Admin:      https://fika-rideshare-api-90ac04a02a1f.herokuapp.com/admin/
+REST base:  https://fika-rideshare-api-90ac04a02a1f.herokuapp.com/api/
+
+FRONTEND .env (to use the deployed backend)
+-------------------------------------------------------
+EXPO_PUBLIC_API_HOST=fika-rideshare-api-90ac04a02a1f.herokuapp.com
+EXPO_PUBLIC_API_SECURE=true
+# After editing .env, restart Expo with cache clear: npx expo start -c
+# For local runserver instead: set the LAN IP + port and remove API_SECURE
+# (or set it to false) -> falls back to http/ws.

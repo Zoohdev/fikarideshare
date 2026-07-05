@@ -1,26 +1,23 @@
+import * as ImagePicker from "expo-image-picker";
+import { useNavigation, useRoute } from "expo-router";
+import React, { useEffect, useState } from "react";
 import {
-    ScrollView,
-    StyleSheet,
-    Text,
-    View,
-    TouchableOpacity,
-    Modal,
-    Alert,
-    ActivityIndicator,
-    Image,
-  } from "react-native";
-  import React, { useState, useEffect } from "react";
-  import { Colors, Sizes, Fonts, CommonStyles } from "../../constants/styles";
-  import MyStatusBar from "../../components/myStatusBar";
-  import Header from "../../components/header";
-  import Ionicons from "react-native-vector-icons/Ionicons";
-  import MaterialIcons from "react-native-vector-icons/MaterialIcons";
-  import { useNavigation, useRoute } from "@react-navigation/native";
-  import * as ImagePicker from "expo-image-picker";
-  import api from "../../services/api";
-  import Card from "../../components/Card";
-  import Button from "../../components/Button";
-  import StatusBadge from "../../components/StatusBadge";
+  ActivityIndicator,
+  Alert,
+  Image,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import Ionicons from "react-native-vector-icons/Ionicons";
+import MaterialIcons from "react-native-vector-icons/MaterialIcons";
+import Header from "../../components/header";
+import MyStatusBar from "../../components/myStatusBar";
+import { Colors, CommonStyles, Fonts, Sizes } from "../../constants/styles";
+import api from "../../services/api";
   
   const VehicleDetailScreen = () => {
     const navigation = useNavigation();
@@ -145,7 +142,7 @@ import {
     function basicDetailsCard() {
       if (!vehicle) return null;
       return (
-        <Card style={styles.infoCard}>
+        <View style={styles.infoCard}>
           <View style={styles.infoRow}>
             <Text style={{ ...Fonts.grayColor15Medium }}>Registration Plate</Text>
             <Text style={{ ...Fonts.blackColor16Bold }}>{vehicle.license_plate}</Text>
@@ -156,9 +153,9 @@ import {
           </View>
           <View style={[styles.infoRow, { borderBottomWidth: 0 }]}>
             <Text style={{ ...Fonts.grayColor15Medium }}>DEKRA Status</Text>
-            <StatusBadge status={vehicle.dekra_status} />
+            <Text style={{ ...Fonts.primaryColor15SemiBold }}>{vehicle.dekra_status?.replace('_', ' ').toUpperCase()}</Text>
           </View>
-        </Card>
+        </View>
       );
     }
   
@@ -184,12 +181,9 @@ import {
       if (!hasUnsavedChanges) return null;
   
       return (
-        <Button
-          title="Upload Changes"
-          onPress={handleUploadPhotos}
-          loading={isUploading}
-          style={styles.submitButton}
-        />
+        <TouchableOpacity activeOpacity={0.8} style={styles.submitButton} onPress={handleUploadPhotos} disabled={isUploading}>
+          {isUploading ? <ActivityIndicator color={Colors.whiteColor} size="small" /> : <Text style={{ ...Fonts.whiteColor18Bold }}>Upload Changes</Text>}
+        </TouchableOpacity>
       );
     }
   };
@@ -199,7 +193,7 @@ import {
   const styles = StyleSheet.create({
     centeredView: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: Colors.bodyBackColor },
     sectionHeading: { ...Fonts.blackColor16SemiBold, marginHorizontal: Sizes.fixPadding * 2.0, marginTop: Sizes.fixPadding },
-    infoCard: { margin: 20 },
+    infoCard: { backgroundColor: Colors.whiteColor, padding: 20, margin: 20, borderRadius: 15, ...CommonStyles.shadow },
     infoRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "#F0F0F0" },
     gridSection: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", paddingHorizontal: 20 },
     slotFrame: { width: "47%", marginBottom: 20, alignItems: "center" },

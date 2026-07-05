@@ -3,20 +3,19 @@ import React from "react";
 import { CommonStyles, Fonts, Sizes, Colors } from "../constants/styles";
 import MaterialIcons from "react-native-vector-icons/MaterialIcons";
 
-const Header = ({ title, navigation, rightComponent }) => {
+const Header = ({ title, navigation }) => {
   return (
     <View
       style={{
         backgroundColor: Colors.primaryColor,
         ...CommonStyles.rowAlignCenter,
-        paddingHorizontal: Sizes.fixPadding * 2.0,
-        paddingVertical: Sizes.fixPadding * 1.5,
+        padding: Sizes.fixPadding * 2.0,
       }}
     >
       <MaterialIcons
         name="arrow-back-ios"
         color={Colors.whiteColor}
-        size={22}
+        size={24}
         onPress={() => {
           navigation.pop();
         }}
@@ -31,7 +30,6 @@ const Header = ({ title, navigation, rightComponent }) => {
       >
         {title}
       </Text>
-      {rightComponent}
     </View>
   );
 };

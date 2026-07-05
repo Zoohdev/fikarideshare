@@ -1,18 +1,17 @@
-import { ScrollView, StyleSheet, Text, View, Image,TouchableOpacity } from "react-native";
-import React, { useState, useEffect } from "react";
+import { useIsFocused } from "@react-navigation/native";
+import { useNavigation } from "expo-router";
+import React, { useEffect, useState } from "react";
+import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import Ionicons from "react-native-vector-icons/Ionicons";
+import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import {
   Colors,
-  Sizes,
-  Fonts,
-  screenWidth,
   CommonStyles,
+  Fonts,
+  Sizes,
+  screenWidth,
 } from "../../../constants/styles";
-import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
-import Ionicons from "react-native-vector-icons/Ionicons";
-import { useNavigation } from "expo-router";
-import { useIsFocused } from "@react-navigation/native";
 import api from "../../../services/api";
-import Card from "../../../components/Card";
 
 const WalletScreen = () => {
 
@@ -48,9 +47,9 @@ const WalletScreen = () => {
 
   function balanceInfo() {
     return (
-      <Card style={styles.balanceInfoWrapper}>
+      <View style={styles.balanceInfoWrapper}>
         <View style={{ alignItems: "center", margin: Sizes.fixPadding * 4.0 }}>
-          <Text style={{ ...Fonts.blackColor40Bold }}>
+          <Text style={{ ...Fonts.primaryColor30Medium }}>
             {balance !== null ? `${Number(balance).toFixed(2)} ${currency}` : "..."}
           </Text>
           <Text style={{ ...Fonts.grayColor18Medium }}>Available balance</Text>
@@ -157,7 +156,7 @@ const WalletScreen = () => {
             size={24}
           />
         </TouchableOpacity>
-      </Card>
+      </View>
     );
   }
 
@@ -183,8 +182,12 @@ export default WalletScreen;
 
 const styles = StyleSheet.create({
   balanceInfoWrapper: {
+    backgroundColor: Colors.whiteColor,
+    borderRadius: Sizes.fixPadding,
+    ...CommonStyles.shadow,
     marginHorizontal: Sizes.fixPadding * 2.0,
     marginBottom: Sizes.fixPadding * 2.0,
+    padding: Sizes.fixPadding + 5.0,
   },
   header: {
     backgroundColor: Colors.primaryColor,

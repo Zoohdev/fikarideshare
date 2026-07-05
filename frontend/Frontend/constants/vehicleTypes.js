@@ -26,13 +26,13 @@ export const VEHICLE_TYPES = [
     seats: 3,
     premium: true,
   },
-  {
-    key: "xl",
-    name: "Fika XL",
-    description: "Extra seats for groups",
-    seats: 6,
-    premium: false,
-  },
+  // {
+  //   key: "xl",
+  //   name: "Fika XL",
+  //   description: "Extra seats for groups",
+  //   seats: 6,
+  //   premium: false,
+  // },
 ];
 
 export const VEHICLE_TYPE_KEYS = VEHICLE_TYPES.map((v) => v.key);

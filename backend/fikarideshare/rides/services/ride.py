@@ -233,19 +233,6 @@ class RideService:
 
         in_progress_cutoff = timezone.now() - timedelta(minutes=self.MAX_POOL_IN_PROGRESS_MINUTES)
 
-        # --- POOL MATCH DIAGNOSTICS ---------------------------------------
-        # Dump every shared ride and why it is / isn't a candidate, so a
-        # failed pool-join in the logs shows the exact disqualifying field.
-        print("=== [POOL MATCH] incoming request ===")
-        print(f"[POOL MATCH] pickup=({pickup_lat},{pickup_lng}) dropoff=({dropoff_lat},{dropoff_lng}) seats={required_seats}")
-        for r in Ride.objects.filter(ride_type='shared').order_by('-requested_at')[:10]:
-            print(
-                f"[POOL MATCH] shared ride {r.id} status={r.status} "
-                f"pool_open={r.pool_open} seats={r.available_seats} "
-                f"requested={r.requested_at.isoformat() if r.requested_at else None}"
-            )
-        # ------------------------------------------------------------------
-
         # 1. Query for rides that are shared, have seats, and are open for
         # matching, within range, ordered nearest-pickup-first. IN_PROGRESS
         # pools are only eligible if they started recently.
@@ -262,9 +249,6 @@ class RideService:
         ).annotate(
             distance_to_pickup=Distance('pickup_location', passenger_pickup)
         ).order_by('distance_to_pickup')[:10]
-
-        candidate_ids = [str(p.id) for p in candidate_pools]
-        print(f"[POOL MATCH] candidates passing status+seats+distance filter: {len(candidate_ids)} -> {candidate_ids}")
 
         # 2. Directional alignment - reject pools heading a meaningfully
         # different way even if both points fall within radius (a rider
@@ -300,14 +284,11 @@ class RideService:
                 )
                 diff = _bearing_difference(passenger_bearing, pool_bearing)
 
-            print(f"[POOL MATCH] candidate {pool.id} bearing_diff={diff:.1f} (max {self.MAX_POOL_BEARING_DIFF_DEGREES})")
             if diff > self.MAX_POOL_BEARING_DIFF_DEGREES:
-                print(f"[POOL MATCH] candidate {pool.id} REJECTED - bearing off")
                 continue
             if best_diff is None or diff < best_diff:
                 best_pool, best_diff = pool, diff
 
-        print(f"[POOL MATCH] chosen pool: {best_pool.id if best_pool else None}")
         return best_pool
 
     def compute_optimized_route(self, ride: Ride, current_lat: float = None, current_lng: float = None) -> List[Dict]:
@@ -670,7 +651,21 @@ class RideService:
             print("USER OBJECT:", user)
             print("================================")
             # Check driver doesn't have active ride
-            has_active_ride = Ride.objects.filter(
+            # has_active_ride = Ride.objects.filter(
+            #     driver_id=driver_id,
+            #     status__in=[
+            #         Ride.Status.DRIVER_ASSIGNED,
+            #         Ride.Status.DRIVER_ARRIVING,
+            #         Ride.Status.ARRIVED,
+            #         Ride.Status.IN_PROGRESS,
+            #     ]
+            # ).exists()
+           
+            # if has_active_ride:
+            #     print(f"DRIVER {driver_id} SKIPPED — has active ride")
+            #     continue
+
+            active_rides = Ride.objects.filter(
                 driver_id=driver_id,
                 status__in=[
                     Ride.Status.DRIVER_ASSIGNED,
@@ -678,10 +673,22 @@ class RideService:
                     Ride.Status.ARRIVED,
                     Ride.Status.IN_PROGRESS,
                 ]
-            ).exists()
+            )
            
-            if has_active_ride:
-                continue
+            if active_rides.exists():
+                # If they are on a standard (exclusive) ride, skip them entirely
+                if active_rides.filter(ride_type='standard').exists():
+                    print(f"DRIVER {driver_id} SKIPPED — has active standard ride")
+                    continue
+                
+                # If they are on a shared ride, check if they are completely out of seats
+                total_available_seats = sum(r.available_seats for r in active_rides if r.ride_type == 'shared')
+                if total_available_seats <= 0:
+                    print(f"DRIVER {driver_id} SKIPPED — shared ride is full")
+                    print(f"({total_available_seats} seats left)")
+
+                    continue
+            # ---------------
            
             try:
                 return User.objects.get(id=driver_id)

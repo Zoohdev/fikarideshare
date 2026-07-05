@@ -104,6 +104,18 @@ class LocationConsumer(AsyncWebsocketConsumer):
             traceback.print_exc()
    
     async def disconnect(self, close_code):
+        # Mark the driver offline the moment their socket drops. Previously
+        # is_online was only ever set True (via the driver_update_status
+        # message) and never reset, so a driver who closed the app stayed
+        # is_online=True forever. get_available_drivers() would then keep
+        # "matching" them and fire new_ride_request into a user_<id> group
+        # with no live listener - the ride sat in SEARCHING until the rider
+        # cancelled (the pile of cancelled/driver=None rides). Resetting it
+        # here ties "online" to an actually-connected socket. Guarded on
+        # self.user because public-tracking sockets have user=None.
+        if getattr(self, "user", None):
+            await self.set_user_online(False)
+
         if hasattr(self, "user_group"):
 
             await self.channel_layer.group_discard(

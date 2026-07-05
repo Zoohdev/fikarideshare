@@ -1,6 +1,18 @@
+from datetime import timedelta
+from django.utils import timezone
 from django.contrib.auth.base_user import BaseUserManager
 from django.contrib.gis.measure import D
 from django.contrib.gis.db.models.functions import Distance as GeoDistance
+
+# A driver is only considered matchable if their last location ping is
+# within this window. is_online alone isn't enough: it's reset on a clean
+# socket disconnect (see LocationConsumer.disconnect), but a hard dyno
+# kill/crash can drop the socket without running disconnect, leaving
+# is_online=True with a location hours stale. Requiring a recent ping means
+# we never dispatch a ride to a driver whose app is actually gone.
+DRIVER_STALE_AFTER_SECONDS = 300
+
+
 class UserManager(BaseUserManager):
     """
     Custom user model manager where email is the unique identifier
@@ -49,8 +61,10 @@ class UserManager(BaseUserManager):
         unordered, so ride matching picked whichever driver row the DB
         happened to return first rather than the actually-closest one.
         """
+        fresh_cutoff = timezone.now() - timedelta(seconds=DRIVER_STALE_AFTER_SECONDS)
         return self.filter(
             user_type__in=['driver', 'both'],
             is_online=True,
+            last_location_update__gte=fresh_cutoff,
             current_location__distance_lte=(point, D(km=radius_km))
         ).annotate(distance=GeoDistance('current_location', point)).order_by('distance').distinct()

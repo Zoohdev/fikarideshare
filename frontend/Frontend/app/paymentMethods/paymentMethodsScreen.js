@@ -1,21 +1,19 @@
+import { useIsFocused } from "@react-navigation/native";
+import { useLocalSearchParams, useNavigation } from "expo-router";
+import React, { useCallback, useEffect, useState } from "react";
 import {
-  StyleSheet,
-  Text,
-  View,
-  Image,
-  FlatList,
-  TouchableOpacity,
   ActivityIndicator,
   Alert,
+  FlatList,
+  Image,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
-import React, { useState, useEffect, useCallback } from "react";
-import { Colors, Fonts, Sizes, CommonStyles } from "../../constants/styles";
-import MyStatusBar from "../../components/myStatusBar";
 import Header from "../../components/header";
-import Button from "../../components/Button";
-import { useLocalSearchParams, useNavigation } from "expo-router";
-import { useIsFocused } from "@react-navigation/native";
-import { useStripe } from "@stripe/stripe-react-native";
+import MyStatusBar from "../../components/myStatusBar";
+import { Colors, CommonStyles, Fonts, Sizes } from "../../constants/styles";
 import api from "../../services/api";
 
 const PaymentMethodsScreen = () => {
@@ -23,7 +21,6 @@ const PaymentMethodsScreen = () => {
   const navigation = useNavigation();
   const isFocused = useIsFocused();
   const { amount } = useLocalSearchParams();
-  const { handleNextAction } = useStripe();
 
   const [methods, setMethods] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -64,13 +61,8 @@ const PaymentMethodsScreen = () => {
       const response = await api.post("/payments/wallet/topup/", { amount });
 
       if (response.status === 202) {
-        const { error } = await handleNextAction(response.data.client_secret);
-        if (error) {
-          Alert.alert("Authentication failed", error.message || "Please try a different card.");
-          return;
-        }
-        // 3D-Secure cleared - the backend's account/payment webhook
-        // captures the now-authorized charge server-side.
+        Alert.alert("Authentication required", "Additional verification is needed for this card - please try a different one.");
+        return;
       }
 
       navigation.push("successfullyAddAndSend/successfullyAddAndSendScreen", { successFor: "money", amount });
@@ -101,12 +93,22 @@ const PaymentMethodsScreen = () => {
 
   function addAmountButton() {
     return (
-      <Button
-        title={submitting ? "Processing..." : `Add amount${amount ? ` ($${Number(amount).toFixed(2)})` : ""}`}
+      <TouchableOpacity
+        activeOpacity={0.8}
         onPress={handleAddAmount}
-        loading={submitting}
-        style={{ marginVertical: Sizes.fixPadding * 2.0 }}
-      />
+        disabled={submitting}
+        style={{
+          ...CommonStyles.button,
+          marginVertical: Sizes.fixPadding * 2.0,
+          opacity: submitting ? 0.6 : 1,
+        }}
+      >
+        <Text style={{ ...Fonts.whiteColor18Bold }}>
+          {submitting
+            ? "Processing..."
+            : `Add amount${amount ? ` ($${Number(amount).toFixed(2)})` : ""}`}
+        </Text>
+      </TouchableOpacity>
     );
   }
 

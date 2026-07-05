@@ -1,15 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Animated, ActivityIndicator, Alert } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { View, Text, StyleSheet, TouchableOpacity, Animated, SafeAreaView, ActivityIndicator, Alert } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useStripe } from '@stripe/stripe-react-native';
 import api from '../../services/api';
 
 export default function FareSummaryScreen() {
     const { fare, rideId, role } = useLocalSearchParams();
     const router = useRouter();
-    const { handleNextAction } = useStripe();
     const isDriver = role === 'driver';
     const [paying, setPaying] = useState(false);
     const [paid, setPaid] = useState(false);
@@ -38,13 +35,8 @@ export default function FareSummaryScreen() {
             const response = await api.post('/payments/charge/', { amount: fare, ride_id: rideId });
 
             if (response.status === 202) {
-                const { error } = await handleNextAction(response.data.client_secret);
-                if (error) {
-                    Alert.alert("Authentication failed", error.message || "Please try a different card from your wallet.");
-                    return;
-                }
-                // 3D-Secure cleared - the backend's payment webhook captures
-                // the now-authorized charge server-side.
+                Alert.alert("Authentication required", "Your card needs additional verification - please try a different card from your wallet.");
+                return;
             }
 
             setPaid(true);
@@ -90,19 +82,9 @@ export default function FareSummaryScreen() {
                 {isDriver || paid ? (
                     <TouchableOpacity
                         style={styles.payButton}
-                        onPress={() => {
-                            if (!isDriver && paid) {
-                                // Riders rate the trip right after paying -
-                                // feedbackScreen has no payment step of its
-                                // own, so this was the only place that step
-                                // could happen.
-                                router.replace({ pathname: '/feedback/feedbackScreen', params: { rideId } });
-                            } else {
-                                router.replace(isDriver ? '/(driverTabs)/home/homeScreen' : '/(tabs)/home/homeScreen');
-                            }
-                        }}
+                        onPress={() => router.replace(isDriver ? '/(driverTabs)/home/homeScreen' : '/(tabs)/home/homeScreen')}
                     >
-                        <Text style={styles.payButtonText}>{paid ? "Rate your trip" : "Back to home"}</Text>
+                        <Text style={styles.payButtonText}>{paid ? "Done" : "Back to home"}</Text>
                         <Ionicons name="arrow-forward" size={20} color="#fff" style={{marginLeft: 10}} />
                     </TouchableOpacity>
                 ) : (
