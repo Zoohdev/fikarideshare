@@ -43,6 +43,13 @@ class LocationConsumer(AsyncWebsocketConsumer):
         # await self.set_user_online(True)
         print("CONNECT START")
         try:
+            # scope["user"] is set by TokenAuthMiddleware from a verified
+            # SimpleJWT access token (?token=...) - not from a client-
+            # supplied user_id, which used to be trusted here directly
+            # (query_string.split("user_id=")...) with no signature check
+            # at all, letting anyone connect as anyone. The only case with
+            # no authenticated user is a public tracking link, which is
+            # intentionally anonymous.
             self.user = self.scope.get("user")
             print("USER:", self.user)
             if not self.user or self.user.is_anonymous:
@@ -54,22 +61,11 @@ class LocationConsumer(AsyncWebsocketConsumer):
                 if "public_tracking=true" in query_string:
                     print("PUBLIC TRACKING SOCKET")
                     self.user = None
-
-                elif "user_id" in query_string:
-                    print("USER_ID SOCKET")
-                    from users.models import User
-                    try:
-                        user_id = query_string.split("user_id=")[1].split("&")[0]
-                        self.user = await database_sync_to_async(User.objects.get)(id=user_id)
-                    except Exception:
-                        print("USER FETCH ERROR:", e)
-                        await self.close()
-                        return
                 else:
-                    print("NO USER AND NO PUBLIC TRACKING")
+                    print("NO AUTHENTICATED USER AND NO PUBLIC TRACKING")
                     await self.close()
                     return
-                    
+
             print("STEP 1")
             print("CONNECT START")
             print("USER:", self.user)

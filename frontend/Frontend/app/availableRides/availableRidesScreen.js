@@ -1020,6 +1020,7 @@
 
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as SecureStore from "expo-secure-store";
 import * as Location from "expo-location";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
@@ -1320,10 +1321,10 @@ const AvailableRidesScreen = () => {
   };
 
   const connectRiderWebSocket = (rideId, currentLocation, destinationCoord) => {
-    AsyncStorage.getItem("userId").then((userId) => {
-      if (!userId) return;
-    
-      const socketUrl = `${WS_BASE}?user_id=${userId}`;
+    SecureStore.getItemAsync("userToken").then((accessToken) => {
+      if (!accessToken) return;
+
+      const socketUrl = `${WS_BASE}?token=${encodeURIComponent(accessToken)}`;
       const socket = new WebSocket(socketUrl);
       
       socket.onopen = () => {

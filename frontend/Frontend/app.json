@@ -13,6 +13,9 @@
       "bundleIdentifier": "com.render.fika",
       "buildNumber": "3.0.0",
       "supportsTablet": false,
+      "config": {
+        "googleMapsApiKey": "AIzaSyAHqBJa0npG2kaf1mOIMHxhTj365WbRjQQ"
+      },
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "Fika needs your location to find nearby rides, show your position on the map, and track your trip in real time.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "Fika needs background location access so drivers can keep sharing their location during an active ride, even when the app isn't in the foreground.",
@@ -36,7 +39,7 @@
       },
       "config": {
         "googleMaps": {
-          "apiKey": "AIzaSyBGv73TlYO0vjEQlPRjEfJiC5qhzwtgTB0"
+          "apiKey": "AIzaSyAl1KKFiaDzCLrIbwLAtZdZTHtnklHgif0"
         }
       },
       "permissions": [

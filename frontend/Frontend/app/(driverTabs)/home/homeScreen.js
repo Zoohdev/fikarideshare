@@ -523,6 +523,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useIsFocused } from "@react-navigation/native";
 import * as Location from "expo-location";
+import * as SecureStore from "expo-secure-store";
 import { useNavigation, useRouter } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
 import {
@@ -641,14 +642,14 @@ const HomeScreen = () => {
   }, [incomingRequest]);
 
   const connectUnifiedSocket = async () => {
-    const user_id = await AsyncStorage.getItem("userId");
-    if (!user_id) {
+    const accessToken = await SecureStore.getItemAsync("userToken");
+    if (!accessToken) {
       Alert.alert("Error", "No authentication token found.");
       setIsAvailable(false);
       return;
     }
-  
-    const socketUrl = `${WS_BASE}?user_id=${user_id}`;
+
+    const socketUrl = `${WS_BASE}?token=${encodeURIComponent(accessToken)}`;
     driverSocketRef.current = new WebSocket(socketUrl);
   
     driverSocketRef.current.onopen = () => {

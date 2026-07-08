@@ -14,6 +14,7 @@ import {
 import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as SecureStore from "expo-secure-store";
 import { WS_BASE_URL } from "../../constants/apiConfig";
 
 const WS_BASE = `${WS_BASE_URL}/ws/tracking/`;
@@ -58,12 +59,13 @@ export default function RideChatScreen() {
       currentUserIdRef.current = uid;
       try {
         const userId = await AsyncStorage.getItem("userId");
-        if (!userId || !tripId) {
-          console.error("Missing User ID or Trip ID for Chat");
+        const accessToken = await SecureStore.getItemAsync("userToken");
+        if (!userId || !tripId || !accessToken) {
+          console.error("Missing User ID, Trip ID or auth token for Chat");
           return;
         }
 
-        const socketUrl = `${WS_BASE}?user_id=${userId}`;
+        const socketUrl = `${WS_BASE}?token=${encodeURIComponent(accessToken)}`;
         chatSocketRef.current = new WebSocket(socketUrl);
 
         chatSocketRef.current.onopen = () => {

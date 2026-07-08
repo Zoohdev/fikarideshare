@@ -1109,6 +1109,49 @@ from .serializers import (
     ChatMessageSerializer
 )
 from .services.ride import RideService
+from .services.location import GoogleMapsService
+
+
+class PlacesAutocompleteView(APIView):
+    """
+    Proxies Google Places Autocomplete so the API key never ships to clients.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        query = request.query_params.get('input', '').strip()
+        if not query:
+            return Response({'predictions': []})
+
+        latitude = request.query_params.get('latitude')
+        longitude = request.query_params.get('longitude')
+
+        predictions = GoogleMapsService().autocomplete(
+            query=query,
+            latitude=float(latitude) if latitude else None,
+            longitude=float(longitude) if longitude else None,
+        )
+        return Response({'predictions': predictions})
+
+
+class PlaceDetailsView(APIView):
+    """
+    Proxies Google Place Details so the API key never ships to clients.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        place_id = request.query_params.get('place_id', '').strip()
+        if not place_id:
+            return Response({'error': 'place_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        place = GoogleMapsService().place_details(place_id)
+        if not place:
+            return Response({'error': 'Place not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        return Response(place)
 
 
 class RideEstimateView(APIView):
@@ -1393,8 +1436,11 @@ class RideViewSet(viewsets.ModelViewSet):
         current_lat = float(lat_param) if lat_param else None
         current_lng = float(lng_param) if lng_param else None
 
-        approx_lat = round(float(lat_param), 4)
-        approx_lng = round(float(lng_param), 4)
+        # lat/lng are optional (compute_optimized_route falls back to
+        # ride.pickup_location when they're absent) - round() on None used
+        # to crash this with a 500 whenever they weren't both provided.
+        approx_lat = round(current_lat, 4) if current_lat is not None else 'none'
+        approx_lng = round(current_lng, 4) if current_lng is not None else 'none'
 
         cache_key = f"smart_waypoints_{pk}_{approx_lat}_{approx_lng}"
         cached_response = cache.get(cache_key)

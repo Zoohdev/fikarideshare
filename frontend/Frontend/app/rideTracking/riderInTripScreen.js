@@ -539,6 +539,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Contacts from 'expo-contacts';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import * as SecureStore from 'expo-secure-store';
 import * as SMS from 'expo-sms';
 import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
@@ -648,8 +649,10 @@ export default function RiderInTripScreen() {
   const connectWebSocket = async (uid) => {
     if (!uid || !rideId) return;
     try {
+      const accessToken = await SecureStore.getItemAsync('userToken');
+      if (!accessToken) return;
 
-      wsRef.current = new WebSocket(`${WS_BASE}?user_id=${uid}`);
+      wsRef.current = new WebSocket(`${WS_BASE}?token=${encodeURIComponent(accessToken)}`);
       wsRef.current.onopen = () => {
         setConnectionStatus("connected");
         wsRef.current.send(JSON.stringify({ type: 'join_ride', ride_id: rideId }));

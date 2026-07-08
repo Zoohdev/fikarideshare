@@ -480,6 +480,7 @@
 import BottomSheet, { BottomSheetScrollView } from "@gorhom/bottom-sheet";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Location from "expo-location";
+import * as SecureStore from "expo-secure-store";
 import { router, useLocalSearchParams, useNavigation } from "expo-router";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -583,8 +584,8 @@ const StartRideScreen = () => {
 
   useEffect(() => {
     const connectSocket = async () => {
-      const userId = await AsyncStorage.getItem("userId");
-      socketRef.current = new WebSocket(`${WS_BASE}?user_id=${userId}`);
+      const accessToken = await SecureStore.getItemAsync("userToken");
+      socketRef.current = new WebSocket(`${WS_BASE}?token=${encodeURIComponent(accessToken)}`);
       
       socketRef.current.onopen = () => {
         console.log("START RIDE SOCKET CONNECTED");

@@ -79,6 +79,77 @@ class GoogleMapsService:
                 return address
         return None
    
+    def autocomplete(
+        self,
+        query: str,
+        latitude: Optional[float] = None,
+        longitude: Optional[float] = None,
+        country: str = 'za',
+    ) -> List[Dict]:
+        """
+        Places Autocomplete predictions for a partial search query.
+        """
+        params = {
+            'input': query,
+            'key': self.api_key,
+            'components': f'country:{country}',
+        }
+        if latitude is not None and longitude is not None:
+            params['location'] = f'{latitude},{longitude}'
+            params['radius'] = 50000
+
+        response = requests.get(
+            f'{self.base_url}/place/autocomplete/json',
+            params=params,
+        )
+
+        if response.status_code == 200:
+            data = response.json()
+            if data['status'] == 'OK':
+                return [
+                    {
+                        'place_id': p['place_id'],
+                        'description': p['description'],
+                        'main_text': p['structured_formatting']['main_text'],
+                        'secondary_text': p['structured_formatting'].get('secondary_text', ''),
+                    }
+                    for p in data['predictions']
+                ]
+        return []
+
+    def place_details(self, place_id: str) -> Optional[Dict]:
+        """
+        Resolve a place_id (from autocomplete) to a name, address and coordinates.
+        """
+        cache_key = f'place_details:{place_id}'
+        cached = cache.get(cache_key)
+        if cached:
+            return cached
+
+        response = requests.get(
+            f'{self.base_url}/place/details/json',
+            params={
+                'place_id': place_id,
+                'fields': 'name,formatted_address,geometry',
+                'key': self.api_key,
+            }
+        )
+
+        if response.status_code == 200:
+            data = response.json()
+            if data['status'] == 'OK' and data.get('result'):
+                result = data['result']
+                place = {
+                    'name': result.get('name', ''),
+                    'address': result['formatted_address'],
+                    'latitude': result['geometry']['location']['lat'],
+                    'longitude': result['geometry']['location']['lng'],
+                    'place_id': place_id,
+                }
+                cache.set(cache_key, place, timeout=86400)
+                return place
+        return None
+
     def get_directions(
         self,
         origin: Tuple[float, float],

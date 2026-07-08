@@ -17,9 +17,8 @@ import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, useNavigation } from "expo-router";
 import MapView, { PROVIDER_GOOGLE,Marker} from 'react-native-maps';
 import MapViewDirections from 'react-native-maps-directions';
-import { Key } from '../../constants/key';
 import { MAP_THEME, LIVE_TRACKING_DELTA } from '../../constants/mapTheme';
-const GOOGLE_MAPS_API_KEY = Key.apiKey;
+import api from '../../services/api';
 const customMapTheme = MAP_THEME;
 
 const MapSection = ({
@@ -275,14 +274,16 @@ export default function PickLocationScreen() {
 
     setIsSearching(true);
     try {
-      const response = await fetch(
-        `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(query)}&key=${GOOGLE_MAPS_API_KEY}&location=${location?.coords?.latitude || -26.2041},${location?.coords?.longitude || 28.0473}&radius=50000&components=country:ZA`
-      );
-      
-      const data = await response.json();
-      
-      if (data.predictions) {
-        setSearchResults(data.predictions);
+      const response = await api.get('/rides/places/autocomplete/', {
+        params: {
+          input: query,
+          latitude: location?.coords?.latitude,
+          longitude: location?.coords?.longitude,
+        },
+      });
+
+      if (response.data.predictions) {
+        setSearchResults(response.data.predictions);
         setShowSearchResults(true);
       }
     } catch (error) {
@@ -294,25 +295,23 @@ export default function PickLocationScreen() {
 
   const selectDestination = async (placeId, description) => {
     try {
-      const response = await fetch(
-        `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&key=${GOOGLE_MAPS_API_KEY}`
-      );
-      
-      const data = await response.json();
-      
-      if (data.result) {
-        const place = data.result;
+      const response = await api.get('/rides/places/details/', {
+        params: { place_id: placeId },
+      });
+
+      const place = response.data;
+      if (place) {
         const locationData = {
           name: place.name,
-          address: place.formatted_address,
-          latitude: place.geometry.location.lat,
-          longitude: place.geometry.location.lng,
+          address: place.address,
+          latitude: place.latitude,
+          longitude: place.longitude,
           placeId: placeId
         };
         
         setSelectedLocation(locationData);
         setSearchQuery(description);
-        setAddress(place.formatted_address);
+        setAddress(place.address);
         setShowSearchResults(false);
         setShowBottomSheet(true);
         
@@ -445,8 +444,8 @@ export default function PickLocationScreen() {
               >
                 <Ionicons name="location-outline" size={20} color="#666" />
                 <View style={styles.searchResultText}>
-                  <Text style={styles.searchResultTitle}>{item.structured_formatting.main_text}</Text>
-                  <Text style={styles.searchResultSubtitle}>{item.structured_formatting.secondary_text}</Text>
+                  <Text style={styles.searchResultTitle}>{item.main_text}</Text>
+                  <Text style={styles.searchResultSubtitle}>{item.secondary_text}</Text>
                 </View>
               </TouchableOpacity>
             )}

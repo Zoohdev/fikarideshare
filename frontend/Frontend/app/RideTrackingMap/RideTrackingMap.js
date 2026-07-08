@@ -555,6 +555,7 @@ import MapView, { Marker } from 'react-native-maps';
 import MapViewDirections from 'react-native-maps-directions';
 import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons'; 
@@ -649,9 +650,10 @@ export default function ActiverideScreen() {
 
   const connectWebSocket = async () => {
     const uid = await AsyncStorage.getItem('userId');
-    if (!uid) return;
+    const accessToken = await SecureStore.getItemAsync('userToken');
+    if (!uid || !accessToken) return;
 
-    wsRef.current = new WebSocket(`${WS_BASE}?user_id=${uid}`);
+    wsRef.current = new WebSocket(`${WS_BASE}?token=${encodeURIComponent(accessToken)}`);
     wsRef.current.onopen = () => {
       wsRef.current.send(JSON.stringify({ type: 'join_ride', ride_id: rideId }));
     };

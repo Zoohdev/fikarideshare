@@ -1851,15 +1851,15 @@ const HomeScreen = () => {
     }
 
     try {
-      const response = await fetch(
-        `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(text)}&key=${GOOGLE_MAPS_API_KEY}`
-      );
-      const data = await response.json();
-      
-      if (data.status !== "OK" && data.status !== "ZERO_RESULTS") {
-        console.log("Places API Error:", data.status, data.error_message);
-      }
-    
+      const response = await api.get('/rides/places/autocomplete/', {
+        params: {
+          input: text,
+          latitude: currentLocation?.latitude,
+          longitude: currentLocation?.longitude,
+        },
+      });
+      const data = response.data;
+
       if (isDestination) {
         setDestinationSearchResults(data.predictions || []);
       } else {
@@ -1872,13 +1872,13 @@ const HomeScreen = () => {
 
   const selectLocation = async (placeId, description, isDestination = false) => {
     try {
-      const response = await fetch(
-        `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&key=${GOOGLE_MAPS_API_KEY}`
-      );
+      const response = await api.get('/rides/places/details/', {
+        params: { place_id: placeId },
+      });
 
-      const data = await response.json();
-      if (data.result && data.result.geometry) {
-        const location = data.result.geometry.location;
+      const place = response.data;
+      if (place && place.latitude != null && place.longitude != null) {
+        const location = { lat: place.latitude, lng: place.longitude };
         if (isDestination) {
           setDestinationAddress(description);
           setDestinationCoords({

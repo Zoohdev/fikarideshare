@@ -1,6 +1,8 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import (
+    PlacesAutocompleteView,
+    PlaceDetailsView,
     RideEstimateView,
     RideViewSet,
     DriverRideRequestsView,
@@ -28,6 +30,8 @@ urlpatterns = [
     path('', include(router.urls)),
 
     # Standalone APIView Endpoints
+    path('places/autocomplete/', PlacesAutocompleteView.as_view(), name='places_autocomplete'),
+    path('places/details/', PlaceDetailsView.as_view(), name='place_details'),
     path('estimate/', RideEstimateView.as_view(), name='ride_estimate'),
     path('driver/requests/', DriverRideRequestsView.as_view(), name='driver_requests'),
     path('driver/accept/<uuid:ride_id>/', DriverAcceptRideView.as_view(), name='driver_accept_ride'),

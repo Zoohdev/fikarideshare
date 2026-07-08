@@ -706,6 +706,20 @@ class RideService:
         """
         Assign a driver to a ride.
         """
+        # Re-fetch and lock the ride row before checking/mutating status.
+        # Both callers (DriverAcceptRideView's REST accept and the
+        # websocket driver_accept_ride handler) previously read the ride
+        # with a plain .get() and no row lock, so two near-simultaneous
+        # accepts - or a REST accept racing a websocket accept - could
+        # both pass their own pre-check before either committed, and
+        # whichever's ride.save() ran last would silently overwrite the
+        # other's driver assignment. Locking and re-checking status here,
+        # in the one method both paths funnel through, closes that for
+        # both callers at once instead of duplicating the guard in each.
+        ride = Ride.objects.select_for_update().get(id=ride.id)
+        if ride.status != Ride.Status.SEARCHING or ride.driver_id:
+            return False, {'error': 'Ride is no longer available'}
+
         # Get driver's primary vehicle
         vehicle = driver.vehicles.filter(
             is_primary=True,
