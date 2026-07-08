@@ -182,6 +182,11 @@ const LoginScreen = () => {
             placeholderTextColor={Colors.grayColor}
             value={email}
             onChangeText={setEmail}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoCorrect={false}
+            textContentType="emailAddress"
+            autoComplete="email"
           />
         </View>
 
@@ -193,6 +198,11 @@ const LoginScreen = () => {
             placeholderTextColor={Colors.grayColor}
             value={password}
             onChangeText={setPassword}
+            secureTextEntry
+            autoCapitalize="none"
+            autoCorrect={false}
+            textContentType="password"
+            autoComplete="password"
           />
         </View>
       </View>
