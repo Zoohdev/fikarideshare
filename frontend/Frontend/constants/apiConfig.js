@@ -11,7 +11,14 @@ export const API_HOST = process.env.EXPO_PUBLIC_API_HOST || 'fika-rideshare-api-
 
 export const API_BASE_URL = `https://${API_HOST}/api`;
 
-export const WS_BASE_URL = `ws://${API_HOST}`;
+// Must be wss:// (not ws://) to match API_BASE_URL's https:// - Heroku
+// terminates TLS on this host, and Android 9+ (API 28+) blocks all
+// cleartext (ws://) traffic by default with no manifest override set here.
+// A plain ws:// connection to this host doesn't get refused by the server -
+// it never leaves the device, so there's no server-side error to see either.
+// This was almost certainly why the driver app was never receiving live
+// ride requests over the websocket even before today's changes.
+export const WS_BASE_URL = `wss://${API_HOST}`;
 export const WS_TRACKING_URL = `${WS_BASE_URL}/ws/tracking/`;
 export const WS_SOS_BASE_URL = `${WS_BASE_URL}/ws/safety/sos/`;
 
