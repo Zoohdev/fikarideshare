@@ -547,7 +547,7 @@ const ProfileScreen = () => {
           icon: "shield-alert-outline",
           option: "Privacy policy",
           detail: "Know our policy",
-          onPress: () => navigation.push("privacyPolicy/privacyPolicyScreen"),
+          onPress: () => navigation.push("privacyPolicyDrivers/privacyPolicyDriversScreen"),
         })}
         {divider()}
         {profileOptionSort({

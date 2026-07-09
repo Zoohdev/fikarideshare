@@ -708,7 +708,7 @@ const RegisterScreen = () => {
               Terms & Conditions
             </Text>
             {" "}and clarify acknowledgement of the{" "}
-            <Text onPress={() => router.push("privacyPolicy/privacyPolicyScreen")} style={styles.interactiveLinkStyle}>
+            <Text onPress={() => router.push("privacyPolicyDrivers/privacyPolicyDriversScreen")} style={styles.interactiveLinkStyle}>
               Privacy Policy
             </Text>
             .
