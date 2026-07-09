@@ -1,7 +1,7 @@
 import { Dimensions, Platform } from "react-native";
 
 export const Colors = {
-  primaryColor: "#083328ff",
+  primaryColor: "#003231ff",
   secondaryColor: "#FF8C00",
   lightSecondaryColor: "#FFEED2",
   blackColor: "#0f1111ff",
@@ -9,7 +9,7 @@ export const Colors = {
   grayColor: "#4f5353ff",
   lightGrayColor: "#bdbcbcff",
   bodyBackColor: "#F4F4F4",
-  greenColor: "#033024ff",
+  greenColor: "#003231ff",
   redColor: "#D24036",
 };
 

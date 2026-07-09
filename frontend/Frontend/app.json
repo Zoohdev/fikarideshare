@@ -35,7 +35,7 @@
       "versionCode": 1,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#264D66"
+        "backgroundColor": "#FFFFFF"
       },
       "config": {
         "googleMaps": {
@@ -73,7 +73,7 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 220,
           "resizeMode": "contain",
-          "backgroundColor": "#264D66"
+          "backgroundColor": "#003231"
         }
       ],
       "expo-font",
