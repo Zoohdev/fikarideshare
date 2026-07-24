@@ -35,6 +35,7 @@ const LoginScreen = () => {
   const [callingCode, setCallingCode] = useState("27");
   const [countryCode, setCountryCode] = useState("ZA");
   const [isLoading, setIsLoading] = useState(false);
+  const [securePassword, setSecurePassword] = useState(true);
   const { setProfileData } = useProfile();
   const phoneInput = useRef(null);
 
@@ -98,21 +99,15 @@ const LoginScreen = () => {
         
         };
       }
-      const token = response.data.access_token;
-      if (token) {
-        await AsyncStorage.setItem('token', token);
-        console.log("Token stored successfully:", token);
-        
-        if ( response.data.user.id && response.data.user.is_driver === true) {
-          console.log("Navigating to Driver Panel...");
-          router.replace("/(driverTabs)/home/homeScreen");
-        } else {
-          console.log("Navigating to Rider Panel...");
-          // router.replace("/pickLocation/pickLocationScreen"); // Or your main passenger home screen
-          router.replace("/(tabs)/home/homeScreen");
-        }
-        
-    }
+      if (response.data.user.id && response.data.user.is_driver === true) {
+        console.log("Navigating to Driver Panel...");
+        router.replace("/(driverTabs)/home/homeScreen");
+      } else {
+        console.log("Navigating to Rider Panel...");
+        // router.replace("/pickLocation/pickLocationScreen"); // Or your main passenger home screen
+        router.replace("/(tabs)/home/homeScreen");
+      }
+
       console.log("Identity context successfully stored locally.");
 
     }
@@ -198,12 +193,19 @@ const LoginScreen = () => {
             placeholderTextColor={Colors.grayColor}
             value={password}
             onChangeText={setPassword}
-            secureTextEntry
+            secureTextEntry={securePassword}
             autoCapitalize="none"
             autoCorrect={false}
             textContentType="password"
             autoComplete="password"
           />
+          <TouchableOpacity activeOpacity={0.7} onPress={() => setSecurePassword(!securePassword)}>
+            <Ionicons
+              name={securePassword ? "eye-off-outline" : "eye-outline"}
+              color={Colors.grayColor}
+              size={18}
+            />
+          </TouchableOpacity>
         </View>
       </View>
     );
@@ -246,11 +248,7 @@ const LoginScreen = () => {
       <View style={{ alignItems: "center", marginTop: Sizes.fixPadding * 2 }}>
         <Text style={{ ...Fonts.grayColor15Medium }}>Don't have an account?</Text>
         <TouchableOpacity onPress={() => router.push("/auth/registerScreen")}>
-          <Text style={{ ...Fonts.primaryColor16Bold, marginTop: Sizes.fixPadding }}>create rider</Text>
-        </TouchableOpacity>
-
-         <TouchableOpacity onPress={() => router.push("/auth/DriverRegisterScreen")}>
-          <Text style={{ ...Fonts.primaryColor16Bold, marginTop: Sizes.fixPadding }}>create driver</Text>
+          <Text style={{ ...Fonts.primaryColor16Bold, marginTop: Sizes.fixPadding }}>Sign up</Text>
         </TouchableOpacity>
       </View>
     );

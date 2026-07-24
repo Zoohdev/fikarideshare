@@ -6,10 +6,12 @@
 // Set EXPO_PUBLIC_API_HOST in your .env to your machine's LAN IP (the one
 // `python manage.py runserver 0.0.0.0:8000` is reachable on from your
 // phone/emulator) - see .env.example.
-export const API_HOST = process.env.EXPO_PUBLIC_API_HOST || 'fika-rideshare-api-90ac04a02a1f.herokuapp.com';
-// export const API_HOST = process.env.EXPO_PUBLIC_API_HOST || '192.168.0.113:8000';
+// export const API_HOST = process.env.EXPO_PUBLIC_API_HOST || 'fika-rideshare-api-90ac04a02a1f.herokuapp.com';
+export const API_HOST = '10.66.157.194:8000';
 
-export const API_BASE_URL = `https://${API_HOST}/api`;
+// export const API_BASE_URL = `https://${API_HOST}/api`;
+export const API_BASE_URL = `http://${API_HOST}/api`;
+
 
 // Must be wss:// (not ws://) to match API_BASE_URL's https:// - Heroku
 // terminates TLS on this host, and Android 9+ (API 28+) blocks all

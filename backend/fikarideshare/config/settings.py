@@ -23,6 +23,47 @@ def _redis_tls(url):
 load_dotenv(os.path.join(BASE_DIR, '.env'))
 
 
+# GeoDjango GDAL/GEOS library paths - Windows dev only. Linux/production
+# (Heroku, os.name == 'posix') never enters this branch, so this has no
+# effect on hosting - GDAL/GEOS are installed as system libraries there.
+#
+# Per-developer overrides go in your own untracked .env (never hardcode a
+# personal path here) - see .env.example for GDAL_LIBRARY_PATH,
+# GEOS_LIBRARY_PATH, OSGEO4W_ROOT, PROJ_LIB, GDAL_DATA. If none are set, we
+# auto-detect a standard OSGeo4W install instead of assuming one person's
+# username/folder layout.
+if os.name == 'nt':
+    GDAL_LIBRARY_PATH = config('GDAL_LIBRARY_PATH', default='') or None
+    GEOS_LIBRARY_PATH = config('GEOS_LIBRARY_PATH', default='') or None
+
+    if not (GDAL_LIBRARY_PATH and GEOS_LIBRARY_PATH):
+        osgeo_candidates = filter(None, [
+            config('OSGEO4W_ROOT', default=''),
+            r'C:\OSGeo4W',
+            os.path.join(os.path.expanduser('~'), 'AppData', 'Local', 'Programs', 'OSGeo4W'),
+        ])
+
+        for osgeo_root in osgeo_candidates:
+            osgeo_bin = os.path.join(osgeo_root, 'bin')
+            gdal_dlls = glob.glob(os.path.join(osgeo_bin, 'gdal*.dll'))
+            geos_dlls = glob.glob(os.path.join(osgeo_bin, 'geos_c.dll'))
+
+            if gdal_dlls and geos_dlls:
+                os.environ['PATH'] = osgeo_bin + os.pathsep + os.environ['PATH']
+                GDAL_LIBRARY_PATH = GDAL_LIBRARY_PATH or gdal_dlls[0]
+                GEOS_LIBRARY_PATH = GEOS_LIBRARY_PATH or geos_dlls[0]
+                os.environ['PROJ_LIB'] = config('PROJ_LIB', default=os.path.join(osgeo_root, 'share', 'proj'))
+                os.environ['GDAL_DATA'] = config('GDAL_DATA', default=os.path.join(osgeo_root, 'share', 'gdal'))
+                print(f"GeoDjango: linked GDAL/GEOS from {osgeo_bin}")
+                break
+        else:
+            print(
+                "GeoDjango: no local OSGeo4W install auto-detected. If PostGIS "
+                "features fail, set GDAL_LIBRARY_PATH/GEOS_LIBRARY_PATH (or "
+                "OSGEO4W_ROOT) in your own .env - see .env.example."
+            )
+
+
 SECRET_KEY = config('SECRET_KEY')
 DEBUG = config('DEBUG', default=False, cast=bool)
 ALLOWED_HOSTS = [h for h in config('ALLOWED_HOSTS', default='').split(',') if h]
@@ -34,7 +75,7 @@ GOOGLE_MAPS_API_KEY = os.environ.get('GOOGLE_MAPS_API_KEY')
 INSTALLED_APPS = [
     # Django Channels (must be first for ASGI)
     'daphne',
-   
+
     # Django core
     'django.contrib.admin',
     'django.contrib.auth',
@@ -43,7 +84,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'django.contrib.gis',  # GeoDjango for PostGIS
-   
+
     # Third-party
     'rest_framework',
     'rest_framework_simplejwt',
@@ -52,7 +93,8 @@ INSTALLED_APPS = [
     'channels',
     'django_filters',
     'drf_spectacular',
-   
+    'serviceability',
+
     # Local apps
     'users.apps.UsersConfig',
     'vehicles.apps.VehiclesConfig',
@@ -130,29 +172,6 @@ else:
             'CONN_HEALTH_CHECKS': True,
         }
     }
-    
-# if config('DATABASE_URL', default=''):
-#     DATABASES = {
-#         'default': dj_database_url.config(
-#             default=config('DATABASE_URL'),
-#             conn_max_age=600,
-#             ssl_require=True,
-#             'CONN_MAX_AGE': 60,
-#         )
-#     }
-#     # dj-database-url sets the plain postgres engine; force the GIS backend.
-#     DATABASES['default']['ENGINE'] = 'django.contrib.gis.db.backends.postgis'
-# else:
-#     DATABASES = {
-#         'default': {
-#             'ENGINE': 'django.contrib.gis.db.backends.postgis',
-#             'NAME': config('DB_NAME'),
-#             'USER': config('DB_USER'),
-#             'PASSWORD': config('DB_PASSWORD'),
-#             'HOST': config('DB_HOST', default='localhost'),
-#             'PORT': config('DB_PORT', default='5432'),
-#         }
-#     }
 
 
 # Redis. On Heroku a single addon provides one REDIS_URL (rediss://, db 0)
@@ -184,8 +203,7 @@ CHANNEL_LAYERS = {
         },
     },
 }
-# CELERY_TASK_ALWAYS_EAGER = True
-# CELERY_TASK_EAGER_PROPAGATES_EXCEPTIONS = True
+
 CELERY_TASK_ALWAYS_EAGER = False
 CELERY_TASK_EAGER_PROPAGATES = False
 
@@ -238,17 +256,11 @@ GOOGLE_MAPS_API_KEY = config('GOOGLE_MAPS_API_KEY', default='')
 
 ONFIDO_API_TOKEN = config('ONFIDO_API_TOKEN', default='')  # KYC provider
 DEKRA_API_KEY = config('DEKRA_API_KEY', default='')
-DEKRA_API_URL = config('DEKRA_API_URL', default='[api.dekra.com](https://api.dekra.com/v1)')
+DEKRA_API_URL = config('DEKRA_API_URL', default='https://api.dekra.com/v1')
 
 
 # CORS settings
-# CORS_ALLOWED_ORIGINS = [
-#     'http://localhost:3000',
-#     'http://localhost:8081',
-# ]
-# CORS_ALLOW_CREDENTIALS = True
-
-CORS_ALLOW_ALL_ORIGINS = True  
+CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOW_CREDENTIALS = True
 
 
@@ -291,7 +303,7 @@ if not DEBUG:
 
 TEMPLATES = [
     {
-        'BACKEND': 'django.template.backends.django.DjangoTemplates', # <--- Make sure this line is exactly here
+        'BACKEND': 'django.template.backends.django.DjangoTemplates',
         'DIRS': [],
         'APP_DIRS': True,
         'OPTIONS': {
@@ -304,44 +316,3 @@ TEMPLATES = [
         },
     },
 ]
-
-
-# GeoDjango GDAL/GEOS library paths - Windows dev only. Linux/production
-# never reaches this branch (GDAL/GEOS are installed as system libraries
-# there), so this has no effect on hosting.
-#
-# Per-developer overrides go in your own untracked .env (never hardcode a
-# personal path here) - see .env.example for GDAL_LIBRARY_PATH,
-# GEOS_LIBRARY_PATH, OSGEO4W_ROOT, PROJ_LIB, GDAL_DATA. If none are set, we
-# auto-detect a standard OSGeo4W install instead of assuming one person's
-# username/folder layout.
-if os.name == 'nt':
-    GDAL_LIBRARY_PATH = config('GDAL_LIBRARY_PATH', default='') or None
-    GEOS_LIBRARY_PATH = config('GEOS_LIBRARY_PATH', default='') or None
-
-    if not (GDAL_LIBRARY_PATH and GEOS_LIBRARY_PATH):
-        osgeo_candidates = filter(None, [
-            config('OSGEO4W_ROOT', default=''),
-            r'C:\OSGeo4W',
-            os.path.join(os.path.expanduser('~'), 'AppData', 'Local', 'Programs', 'OSGeo4W'),
-        ])
-
-        for osgeo_root in osgeo_candidates:
-            osgeo_bin = os.path.join(osgeo_root, 'bin')
-            gdal_dlls = glob.glob(os.path.join(osgeo_bin, 'gdal*.dll'))
-            geos_dlls = glob.glob(os.path.join(osgeo_bin, 'geos_c.dll'))
-
-            if gdal_dlls and geos_dlls:
-                os.environ['PATH'] = osgeo_bin + os.pathsep + os.environ['PATH']
-                GDAL_LIBRARY_PATH = GDAL_LIBRARY_PATH or gdal_dlls[0]
-                GEOS_LIBRARY_PATH = GEOS_LIBRARY_PATH or geos_dlls[0]
-                os.environ['PROJ_LIB'] = config('PROJ_LIB', default=os.path.join(osgeo_root, 'share', 'proj'))
-                os.environ['GDAL_DATA'] = config('GDAL_DATA', default=os.path.join(osgeo_root, 'share', 'gdal'))
-                print(f"GeoDjango: linked GDAL/GEOS from {osgeo_bin}")
-                break
-        else:
-            print(
-                "GeoDjango: no local OSGeo4W install auto-detected. If PostGIS "
-                "features fail, set GDAL_LIBRARY_PATH/GEOS_LIBRARY_PATH (or "
-                "OSGEO4W_ROOT) in your own .env - see .env.example."
-            )

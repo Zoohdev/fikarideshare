@@ -1,13 +1,11 @@
-
-
-// //home
+// import AsyncStorage from "@react-native-async-storage/async-storage";
 // import { useIsFocused } from "@react-navigation/native";
 // import * as Location from 'expo-location';
 // import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 // import React, { useEffect, useRef, useState } from "react";
 // import {
 //   ActivityIndicator,
-//   Alert, // Added Alert import
+//   Alert,
 //   Image,
 //   Modal,
 //   ScrollView,
@@ -18,10 +16,9 @@
 //   TouchableWithoutFeedback,
 //   View
 // } from "react-native";
-// import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
-// import MapViewDirections from 'react-native-maps-directions';
+// import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 // import Ionicons from "react-native-vector-icons/Ionicons";
-// import { Key } from "../../../constants/key";
+// import { API_HOST } from "../../../constants/apiConfig";
 // import { LIVE_TRACKING_DELTA, MAP_THEME } from "../../../constants/mapTheme";
 // import {
 //   Colors,
@@ -29,12 +26,14 @@
 //   Fonts,
 //   Sizes,
 // } from "../../../constants/styles";
+// import { VEHICLE_TYPE_KEYS } from "../../../constants/vehicleTypes";
 // import api from "../../../services/api";
 // import socket from "../../../services/socketService";
-// const GOOGLE_MAPS_API_KEY = Key.apiKey;
+// import { decodePolyline } from "../../../utils/decodePolyline";
+// import { useProfile } from "../../context/ProfileContext";
+
 // const customMapTheme = MAP_THEME;
 
-// // Add this below your imports
 // const calculateBearing = (startLat, startLng, endLat, endLng) => {
 //   const fromLat = (startLat * Math.PI) / 180;
 //   const fromLng = (startLng * Math.PI) / 180;
@@ -52,29 +51,23 @@
 //   return (bearing + 360) % 360;
 // };
 
-
 // function generateRandomDriverLocation(baseCoords, index) {
-//   // Rough approximation: 1 degree latitude ~= 111,000 meters
 //   const metersPerDegree = 111000;
-  
-//   // Set a range between 300 meters and 1200 meters away from pickup point
 //   const minDistance = 300;
 //   const maxDistance = 1200;
 //   const randomDistance = Math.random() * (maxDistance - minDistance) + minDistance;
   
-//   // Distribute headings evenly or randomly across 360 degrees
 //   const angle = (index * 75 + Math.random() * 45) % 360;
 //   const angleInRadians = (angle * Math.PI) / 180;
 
 //   const deltaLat = (randomDistance * Math.cos(angleInRadians)) / metersPerDegree;
-//   // Account for longitude shrinkage depending on distance from the equator
 //   const deltaLng = (randomDistance * Math.sin(angleInRadians)) / (metersPerDegree * Math.cos((baseCoords.latitude * Math.PI) / 180));
 
 //   return {
 //     id: `mock_nearby_car_${index}_${Date.now()}`,
 //     latitude: baseCoords.latitude + deltaLat,
 //     longitude: baseCoords.longitude + deltaLng,
-//     heading: (angle + 180) % 360, // Set the car pointing back roughly towards or around the center
+//     heading: (angle + 180) % 360,
 //   };
 // }
 
@@ -85,7 +78,8 @@
 //   showMap,
 //   mapRef,
 //   heading,
-//   nearbyCars = []
+//   nearbyCars = [],
+//   routeCoordinates = []
 // }) => {
 
 //   useEffect(() => {
@@ -95,13 +89,23 @@
 //         longitude: currentLocation.longitude,
 //         latitudeDelta: MAP_ZOOM_DELTA,
 //         longitudeDelta: MAP_ZOOM_DELTA,
-//       }, 1000); // 1-second smooth panning animation
+//       }, 1000);
 //     }
 //   }, [currentLocation, destinationCoords, showMap]);
+
+//   useEffect(() => {
+//     if (routeCoordinates.length > 0 && mapRef.current) {
+//       mapRef.current.fitToCoordinates(routeCoordinates, {
+//         edgePadding: { top: 100, right: 50, bottom: 300, left: 50 },
+//         animated: true,
+//       });
+//     }
+//   }, [routeCoordinates]);
+  
 //   if (!showMap || !currentLocation) {
 //     return null;
 //   }
-//   const scale = 0.8;
+  
 //   return (
 //     <View style={{ flex: 1 }}>
 //       <MapView
@@ -109,7 +113,6 @@
 //         provider={PROVIDER_GOOGLE}
 //         style={styles.Map}
 //         customMapStyle={customMapTheme}
-//         // mapId="683bbaed124217965ad088fb"
 //         initialRegion={{
 //           latitude: currentLocation.latitude,
 //           longitude: currentLocation.longitude,
@@ -117,28 +120,19 @@
 //           longitudeDelta: LIVE_TRACKING_DELTA,
 //         }}
 //       >
-//         {/* PICKUP MARKER */}
-        
-//         {/* UPDATED PICKUP MARKER (Vehicle) */}
 //         <Marker
 //           coordinate={{
 //             latitude: currentLocation.latitude,
 //             longitude: currentLocation.longitude,
 //           }}
-//           // anchor={{ x: 0.5, y: 0.5 }} // Center anchor is best for rotation
-//           flat={true} // Keeps the marker flat on the map for realistic rotation
-//           rotation={heading} // Rotates the marker based on movement direction
-//           anchor={{ x: 0.5, y: 1 }}
+//           anchor={{ x: 0.5, y: 0.5 }}
+//           zIndex={999}
 //         >
-//           {/* Replace this path with your actual car asset path */}
-//           <Image 
-//             source={require("../../../assets/images/car.png")} 
-//             style={{ width: 42, height: 42, resizeMode: 'contain' }}
-//           />
-         
+//           <View style={styles.currentLocationDotOuter}>
+//             <View style={styles.currentLocationDotInner} />
+//           </View>
 //         </Marker>
         
-//         {/* RANDOM SURROUNDING VEHICLES */}
 //         {nearbyCars.map((car) => (
 //           <Marker
 //             key={car.id}
@@ -148,7 +142,7 @@
 //             }}
 //             flat={true}
 //             rotation={car.heading}
-//             anchor={{ x: 0.5, y: 0.5 }} // Center anchor is critical for clean car asset rotations
+//             anchor={{ x: 0.5, y: 0.5 }} 
 //           >
 //             <Image 
 //               source={require("../../../assets/images/car.png")} 
@@ -157,32 +151,6 @@
 //           </Marker>
 //         ))}
 
-//         {/* <Marker
-//           coordinate={{
-//             latitude: currentLocation.latitude,
-//             longitude: currentLocation.longitude,
-//           }}
-//           anchor={{ x: 0.5, y: 1 }}
-//         >
-//           <View style={styles.simpleMarker}>
-//             <Ionicons
-//               name="person"
-//               size={18}
-//               color="white"
-//             />
-//           </View>
-          
-
-//         </Marker> */}
-
-// {/* <Marker
-//   coordinate={currentLocation}
-//   image={require("../../../assets/images/car-marker-transparent.png")}
-//   anchor={{ x: 0.5, y: 0.8 }}
-//   flat={true}
-// /> */}
-
-//         {/* DESTINATION MARKER */}
 //         {destinationCoords && (
 //           <Marker
 //             coordinate={destinationCoords}
@@ -192,31 +160,11 @@
 //           />
 //         )}
 
-//         {/* ROUTE POLYLINE */}
-//         {destinationCoords && (
-//           <MapViewDirections
-//             origin={currentLocation}
-//             destination={destinationCoords}
-//             apikey={GOOGLE_MAPS_API_KEY}
+//         {routeCoordinates.length > 0 && (
+//           <Polyline
+//             coordinates={routeCoordinates}
 //             strokeWidth={5}
-//             strokeColor='#1A202C'
-//             onReady={(result) => {
-//               mapRef.current.fitToCoordinates(
-//                 result.coordinates,
-//                 {
-//                   edgePadding: {
-//                     top: 100,
-//                     right: 50,
-//                     bottom: 300,
-//                     left: 50,
-//                   },
-//                   animated: true,
-//                 }
-//               );
-//             }}
-//             onError={(error) => {
-//               console.log(error);
-//             }}
+//             strokeColor={Colors.blackColor}
 //           />
 //         )}
 //       </MapView>
@@ -224,257 +172,11 @@
 //   );
 // };
 
-// // const MAP_ZOOM_DELTA = 0.007;
-
-// // const MapSection = ({
-// //   currentLocation,
-// //   destinationCoords,
-// //   showMap,
-// //   mapRef,
-// //   heading,
-// //   nearbyCars = []
-// // }) => {
-// //   useEffect(() => {
-// //     if (showMap && currentLocation && !destinationCoords && mapRef.current) {
-// //       mapRef.current.animateToRegion({
-// //         latitude: currentLocation.latitude,
-// //         longitude: currentLocation.longitude,
-// //         latitudeDelta: MAP_ZOOM_DELTA,
-// //         longitudeDelta: MAP_ZOOM_DELTA,
-// //       }, 1000); // 1-second smooth panning animation
-// //     }
-// //   }, [currentLocation, destinationCoords, showMap]);
-
-
-
-// //   if (!showMap || !currentLocation) {
-// //     return null;
-// //   }
-
-// //   return (
-// //     <View style={{ flex: 1, overflow: 'hidden' }}>
-// //       <MapView
-// //         ref={mapRef}
-// //         provider={PROVIDER_GOOGLE}
-// //         style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
-// //         customMapStyle={customMapTheme}
-// //         initialRegion={{
-// //           latitude: currentLocation.latitude,
-// //           longitude: currentLocation.longitude,
-// //           latitudeDelta: MAP_ZOOM_DELTA,
-// //           longitudeDelta: MAP_ZOOM_DELTA,
-// //         }}
-// //       >
-// //         {/* MAIN ACTIVE VEHICLE MARKER */}
-// //         <Marker
-// //           coordinate={{
-// //             latitude: currentLocation.latitude,
-// //             longitude: currentLocation.longitude,
-// //           }}
-// //           flat={true} // Keeps the asset parallel to the earth map grid plane
-// //           rotation={heading || 0} 
-// //           anchor={{ x: 0.5, y: 0.5 }} // Pivot rotation around absolute center of mass
-// //         >
-// //           <Image 
-// //             source={require("../../../assets/images/car.png")} 
-// //             style={{ width: 38, height: 38, resizeMode: 'contain' }}
-// //           />
-// //         </Marker>
-        
-// //         {/* AMBIENT SURROUNDING FLEET VEHICLES */}
-// //         {nearbyCars.map((car) => (
-// //           <Marker
-// //             key={car.id}
-// //             coordinate={{
-// //               latitude: car.latitude,
-// //               longitude: car.longitude,
-// //             }}
-// //             flat={true}
-// //             rotation={car.heading || 0}
-// //             anchor={{ x: 0.5, y: 0.5 }} // Rotates flawlessly on its center axis
-// //           >
-// //             <Image 
-// //               source={require("../../../assets/images/car.png")} 
-// //               style={{ width: 34, height: 34, resizeMode: 'contain', opacity: 0.85 }}
-// //             />
-// //           </Marker>
-// //         ))}
-
-// //         {/* DESTINATION MARKER */}
-// //         {destinationCoords && (
-// //           <Marker
-// //             coordinate={destinationCoords}
-// //             anchor={{ x: 0.5, y: 0.5 }}
-// //           >
-// //             <Image 
-// //               source={require("../../../assets/images/destination.png")}
-// //               style={{ width: 32, height: 32, resizeMode: 'contain' }}
-// //             />
-// //           </Marker>
-// //         )}
-
-// //         {/* MODERNIZED ROUTE POLYLINE */}
-// //         {destinationCoords && (
-// //           <MapViewDirections
-// //             origin={currentLocation}
-// //             destination={destinationCoords}
-// //             apikey={GOOGLE_MAPS_API_KEY}
-// //             strokeWidth={4} // Slightly thinner line for a more premium look
-// //             strokeColor="#1A202C" // Dark slate charcoal line matching sleek light/minimal themes
-// //             lineDashPattern={[0]} // Solid uniform line stream
-// //             onReady={(result) => {
-// //               mapRef.current.fitToCoordinates(
-// //                 result.coordinates,
-// //                 {
-// //                   edgePadding: {
-// //                     top: 80,
-// //                     right: 60,
-// //                     bottom: 320, // Generous breathing space padding for the bottom UI sheet
-// //                     left: 60,
-// //                   },
-// //                   animated: true,
-// //                 }
-// //               );
-// //             }}
-// //             onError={(error) => {
-// //               console.log("Directions Engine Error: ", error);
-// //             }}
-// //           />
-// //         )}
-// //       </MapView>
-// //     </View>
-// //   );
-// // };
-
-
-// // const CLOSE_ZOOM_DELTA = 0.005; 
-
-// // const MapSection = ({
-// //   currentLocation,
-// //   destinationCoords,
-// //   showMap,
-// //   mapRef,
-// //   heading,
-// //   nearbyCars = []
-// // }) => {
-
-// //   // Automatically zoom and focus closely on current/pickup position if no route is active
-// //   useEffect(() => {
-// //     if (showMap && currentLocation && !destinationCoords && mapRef.current) {
-// //       mapRef.current.animateToRegion({
-// //         latitude: currentLocation.latitude,
-// //         longitude: currentLocation.longitude,
-// //         latitudeDelta: CLOSE_ZOOM_DELTA,
-// //         longitudeDelta: CLOSE_ZOOM_DELTA,
-// //       }, 1000); // 1-second smooth panning animation
-// //     }
-// //   }, [currentLocation, destinationCoords, showMap]);
-
-// //   if (!showMap || !currentLocation) {
-// //     return null;
-// //   }
-
-// //   return (
-// //     <View style={{ flex: 1, overflow: 'hidden' }}>
-// //       <MapView
-// //         ref={mapRef}
-// //         provider={PROVIDER_GOOGLE}
-// //         style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
-// //         customMapStyle={customMapTheme}
-// //         initialRegion={{
-// //           latitude: currentLocation.latitude,
-// //           longitude: currentLocation.longitude,
-// //           latitudeDelta: CLOSE_ZOOM_DELTA,
-// //           longitudeDelta: CLOSE_ZOOM_DELTA,
-// //         }}
-// //       >
-// //         {/* MAIN USER/PICKUP VEHICLE MARKER */}
-// //         <Marker
-// //           coordinate={{
-// //             latitude: currentLocation.latitude,
-// //             longitude: currentLocation.longitude,
-// //           }}
-// //           flat={true} // Keeps asset parallel to the earth map grid plane
-// //           rotation={heading || 0} 
-// //           anchor={{ x: 0.5, y: 0.5 }} // Pivot rotation around absolute center of mass
-// //         >
-// //           <Image 
-// //             source={require("../../../assets/images/car.png")} 
-// //             style={{ width: 38, height: 38, resizeMode: 'contain' }}
-// //           />
-// //         </Marker>
-        
-// //         {/* AMBIENT SURROUNDING FLEET VEHICLES (Only visible when destinationCoords exist) */}
-// //         {destinationCoords && nearbyCars.map((car) => (
-// //           <Marker
-// //             key={car.id}
-// //             coordinate={{
-// //               latitude: car.latitude,
-// //               longitude: car.longitude,
-// //             }}
-// //             flat={true}
-// //             rotation={car.heading || 0}
-// //             anchor={{ x: 0.5, y: 0.5 }}
-// //           >
-// //             <Image 
-// //               source={require("../../../assets/images/car.png")} 
-// //               style={{ width: 34, height: 34, resizeMode: 'contain', opacity: 0.85 }}
-// //             />
-// //           </Marker>
-// //         ))}
-
-// //         {/* DESTINATION MARKER */}
-// //         {destinationCoords && (
-// //           <Marker
-// //             coordinate={destinationCoords}
-// //             anchor={{ x: 0.5, y: 0.5 }}
-// //           >
-// //             <Image 
-// //               source={require("../../../assets/images/destination.png")}
-// //               style={{ width: 32, height: 32, resizeMode: 'contain' }}
-// //             />
-// //           </Marker>
-// //         )}
-
-// //         {/* MODERNIZED ROUTE POLYLINE */}
-// //         {destinationCoords && (
-// //           <MapViewDirections
-// //             origin={currentLocation}
-// //             destination={destinationCoords}
-// //             apikey={GOOGLE_MAPS_API_KEY}
-// //             strokeWidth={4} // Slightly thinner line for a more premium look
-// //             strokeColor="#1A202C" // Dark slate charcoal line matching sleek light/minimal themes
-// //             lineDashPattern={[0]} // Solid uniform line stream
-// //             onReady={(result) => {
-// //               if (mapRef.current) {
-// //                 mapRef.current.fitToCoordinates(
-// //                   result.coordinates,
-// //                   {
-// //                     edgePadding: {
-// //                       top: 80,
-// //                       right: 60,
-// //                       bottom: 320, // Increased bottom safety padding to prevent UI sheet overlap
-// //                       left: 60,
-// //                     },
-// //                     animated: true,
-// //                   }
-// //                 );
-// //               }
-// //             }}
-// //             onError={(error) => {
-// //               console.log("Directions Engine Error: ", error);
-// //             }}
-// //           />
-// //         )}
-// //       </MapView>
-// //     </View>
-// //   );
-// // };
-
 // const HomeScreen = () => {
 //   const navigation = useNavigation();
 //   const isFocused = useIsFocused();
 //   const { addressFor, address } = useLocalSearchParams();
+//   const { profileData, fetchProfileDetails } = useProfile();
 
 //   const [pickupAddress, setPickupAddress] = useState("Getting your location...");
 //   const [destinationAddress, setDestinationAddress] = useState("");
@@ -484,35 +186,87 @@
 //   const [currentLocation, setCurrentLocation] = useState(null);
 //   const [numberOfChairs, setNumberOfChairs] = useState(1);
 //   const mapRef = useRef(null);
+//   const locationSubscription = useRef(null);
 //   const [isProcessing, setIsProcessing] = useState(false);
 //   const [locationModalVisible, setLocationModalVisible] = useState(false);
-//   const [destinationModalVisible, setDestinationModalVisible] = useState(false); // New state for destination modal
+//   const [destinationModalVisible, setDestinationModalVisible] = useState(false); 
 //   const [searchText, setSearchText] = useState("");
-//   const [destinationSearchText, setDestinationSearchText] = useState(""); // New state for destination search
+//   const [destinationSearchText, setDestinationSearchText] = useState(""); 
 //   const [searchResults, setSearchResults] = useState([]);
-//   const [destinationSearchResults, setDestinationSearchResults] = useState([]); // New state for destination results
+//   const [destinationSearchResults, setDestinationSearchResults] = useState([]); 
 //   const router = useRouter();
 //   const [destinationCoords, setDestinationCoords] = useState(null);
+//   const [routeCoordinates, setRouteCoordinates] = useState([]);
 //   const [selectedRideType, setSelectedRideType] = useState('standard');
 //   const [previousLocation, setPreviousLocation] = useState(null);
 //   const [heading, setHeading] = useState(0);
+//   const [nearbyCars, setNearbyCars] = useState([]);
+
+//   // Integrate Profile Avatar exactly into existing UI
+//   const avatarUrl = profileData?.profile_photo
+//     ? (profileData.profile_photo.startsWith("http")
+//         ? profileData.profile_photo
+//         : `http://${API_HOST}${profileData.profile_photo}`)
+//     : null;
+//   const firstName = profileData?.full_name?.split(" ")[0] || "John Doe";
+//   const currentLocationRef = useRef(currentLocation);
+
+//   useEffect(() => {
+//     if (isFocused) {
+//       fetchProfileDetails();
+//     }
+//   }, [isFocused]);
+
+//   useEffect(() => {
+//     currentLocationRef.current = currentLocation;
+//   }, [currentLocation]);
 
 //   useEffect(() => {
 //     getCurrentLocation();
 //   }, []);
 
-//   const [nearbyCars, setNearbyCars] = useState([]);
+//   useEffect(() => {
+//     const startLocationTracking = async () => {
+//       try {
+//         const { status } = await Location.requestForegroundPermissionsAsync();
+//         if (status !== 'granted') return;
 
-// useEffect(() => {
-//   if (currentLocation?.latitude && currentLocation?.longitude) {
-//     // Generate a pool of 5 random vehicles distributed around the new location
-//     const generatedCars = Array.from({ length: 5 }).map((_, index) => 
-//       generateRandomDriverLocation(currentLocation, index)
-//     );
-//     setNearbyCars(generatedCars);
-//   }
-// }, [currentLocation]);
+//         locationSubscription.current = await Location.watchPositionAsync(
+//           {
+//             accuracy: Location.Accuracy.High,
+//             timeInterval: 5000,
+//             distanceInterval: 5,
+//           },
+//           (location) => {
+//             setCurrentLocation({
+//               latitude: location.coords.latitude,
+//               longitude: location.coords.longitude,
+//             });
+//           }
+//         );
+//       } catch (err) {
+//         console.log("Rider location tracking setup failure:", err);
+//       }
+//     };
 
+//     startLocationTracking();
+
+//     return () => {
+//       if (locationSubscription.current) {
+//         locationSubscription.current.remove();
+//         locationSubscription.current = null;
+//       }
+//     };
+//   }, []);
+
+//   useEffect(() => {
+//     if (currentLocation?.latitude && currentLocation?.longitude) {
+//       const generatedCars = Array.from({ length: 5 }).map((_, index) => 
+//         generateRandomDriverLocation(currentLocation, index)
+//       );
+//       setNearbyCars(generatedCars);
+//     }
+//   }, [currentLocation]);
 
 //   useEffect(() => {
 //     if (currentLocation && mapRef.current) {
@@ -535,11 +289,41 @@
 //         showAddressAlert("Pickup", address);
 //       } else {
 //         setDestinationAddress(address);
-//         showAddressAlert("Destination", address);
 //       }
 //     }
 //   }, [address, addressFor, isFocused]);
-  
+
+//   useEffect(() => {
+//     const origin = currentLocationRef.current;
+//     if (!origin || !destinationCoords) {
+//       setRouteCoordinates([]);
+//       return;
+//     }
+
+//     let cancelled = false;
+//     const fetchRoute = async () => {
+//       try {
+//         const response = await api.get('/rides/directions/', {
+//           params: {
+//             origin_lat: origin.latitude,
+//             origin_lng: origin.longitude,
+//             destination_lat: destinationCoords.latitude,
+//             destination_lng: destinationCoords.longitude,
+//           },
+//         });
+//         if (!cancelled && response.data?.polyline) {
+//           setRouteCoordinates(decodePolyline(response.data.polyline));
+//         }
+//       } catch (error) {
+//         console.log("Directions fetch error:", error);
+//         if (!cancelled) setRouteCoordinates([]);
+//       }
+//     };
+
+//     fetchRoute();
+//     return () => { cancelled = true; };
+//   }, [destinationCoords]);
+
 //   useEffect(() => {
 //     const timer = setTimeout(() => {
 //       setShowMap(true);
@@ -551,11 +335,8 @@
 //     const registerRider = async () => {
 //       try {
 //         const riderId = await AsyncStorage.getItem("riderId");
-//         console.log("📡 REGISTERING RIDER:", riderId);
 //         if (riderId) {
-//           socket.emit("register-rider", {
-//             riderId: parseInt(riderId)
-//           });
+//           socket.emit("register-rider", { riderId: parseInt(riderId) });
 //         }
 //       } catch (err) {
 //         console.log("Error reading riderId from storage:", err);
@@ -563,7 +344,6 @@
 //     };
   
 //     socket.on("connect", () => {
-//       console.log("✅ rider socket connected");
 //       registerRider();
 //     });
   
@@ -573,12 +353,10 @@
 //   }, []);
   
 //   useEffect(() => {
-//     const riderId = Date.now().toString(); // replace with real user ID
+//     const riderId = Date.now().toString(); 
 //     socket.emit("register-rider", { riderId });
-//     console.log("📡 Registered rider:", riderId);
 //   }, []);
 
-//   // Add this useEffect near your other useEffects
 //   useEffect(() => {
 //     if (previousLocation && currentLocation) {
 //       const newHeading = calculateBearing(
@@ -588,7 +366,6 @@
 //         currentLocation.longitude
 //       );
       
-//       // Only update heading if the vehicle actually moved
 //       if (
 //         previousLocation.latitude !== currentLocation.latitude || 
 //         previousLocation.longitude !== currentLocation.longitude
@@ -596,12 +373,8 @@
 //         setHeading(newHeading);
 //       }
 //     }
-//     // Save current location as previous for the next calculation
 //     setPreviousLocation(currentLocation);
 //   }, [currentLocation]);
-
-  
-//   // UTILITY: Generates a random coordinate around a base location within a specific radius (in meters)
 
 //   const showAddressAlert = (type, address) => {
 //     Alert.alert(
@@ -663,15 +436,15 @@
 //     }
 
 //     try {
-//       const response = await fetch(
-//         `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(text)}&key=${GOOGLE_MAPS_API_KEY}`
-//       );
-//       const data = await response.json();
-      
-//       if (data.status !== "OK" && data.status !== "ZERO_RESULTS") {
-//         console.log("Places API Error:", data.status, data.error_message);
-//       }
-    
+//       const response = await api.get('/rides/places/autocomplete/', {
+//         params: {
+//           input: text,
+//           latitude: currentLocation?.latitude,
+//           longitude: currentLocation?.longitude,
+//         },
+//       });
+//       const data = response.data;
+
 //       if (isDestination) {
 //         setDestinationSearchResults(data.predictions || []);
 //       } else {
@@ -684,19 +457,13 @@
 
 //   const selectLocation = async (placeId, description, isDestination = false) => {
 //     try {
-//       const response = await fetch(
-//         `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&key=${GOOGLE_MAPS_API_KEY}`
-//       );
+//       const response = await api.get('/rides/places/details/', {
+//         params: { place_id: placeId },
+//       });
 
-//       const data = await response.json();
-//       if (data.result && data.result.geometry) {
-//         const location = data.result.geometry.location;
-//         console.log("Selected Place Name:", data.result.name);
-//         console.log("Selected Address:", description);
-//         console.log("Selected Coordinates:", {
-//           lat: location.lat,
-//           lng: location.lng,
-//         });
+//       const place = response.data;
+//       if (place && place.latitude != null && place.longitude != null) {
+//         const location = { lat: place.latitude, lng: place.longitude };
 //         if (isDestination) {
 //           setDestinationAddress(description);
 //           setDestinationCoords({
@@ -707,7 +474,6 @@
 //           setDestinationModalVisible(false);
 //           setDestinationSearchText("");
 //           setDestinationSearchResults([]);
-//           showAddressAlert("Destination", description);
 //         } else {
 //           setPickupAddress(description);
 //           setCurrentLocation({
@@ -833,10 +599,9 @@
 //               styles.rideTypeButton,
 //               selectedTabIndex === 1 && styles.selectedRideType
 //             ]}
-//             // onPress={() => setselectedTabIndex(1)}
 //             onPress={() => {
-//               setselectedTabIndex(1);      // Updates UI styling
-//               setSelectedRideType('standard'); // Updates backend data
+//               setselectedTabIndex(1);      
+//               setSelectedRideType('standard'); 
 //             }}
 //           >
 //             <Ionicons 
@@ -858,8 +623,8 @@
 //               selectedTabIndex === 2 && styles.selectedRideType
 //             ]}
 //             onPress={() => {
-//               setselectedTabIndex(2);      // Updates UI styling
-//               setSelectedRideType('shared');   // Updates backend data
+//               setselectedTabIndex(2);      
+//               setSelectedRideType('shared');   
 //             }}
 //           >
 //             <Ionicons 
@@ -938,113 +703,46 @@
 //           </View>
 //         )}
         
-
-//         {/* <TouchableOpacity
+//         <TouchableOpacity
 //           style={[
 //             styles.confirmButton,
-//             (!destinationAddress || !pickupAddress || pickupAddress === "Getting your location..." || pickupAddress === "Unable to get location" || !destinationCoords) && styles.disabledButton
+//             (isProcessing || !destinationAddress || !pickupAddress || pickupAddress === "Getting your location..." || pickupAddress === "Unable to get location" || !destinationCoords) && styles.disabledButton
 //           ]}
-//           disabled={!destinationAddress || !pickupAddress || pickupAddress === "Getting your location..." || pickupAddress === "Unable to get location" || !destinationCoords}
+//           disabled={isProcessing || !destinationAddress || !pickupAddress || pickupAddress === "Getting your location..." || pickupAddress === "Unable to get location" || !destinationCoords}
 //           onPress={async () => {
+//             if (!currentLocation) {
+//               Alert.alert("Error", "Location is still loading. Please wait.");
+//               return;
+//             }
+//             const locationData = currentLocation;
 //             if (pickupAddress && destinationAddress && pickupAddress !== "Getting your location..." && pickupAddress !== "Unable to get location" && destinationCoords) {
-//               const locationData = currentLocation;
               
-//               console.log('Navigating with location:', locationData);
-//               console.log('Latitude:', locationData.latitude);
-//               console.log('Longitude:', locationData.longitude);
-              
-//               // try {
-//               //   // Fetch estimates for all vehicle types matching your Django choices ['economy', 'comfort', 'premium', 'xl']
-//               //   const vehicleTypes = ['economy', 'comfort', 'premium', 'xl'];
-                
-//               //   const estimatePromises = vehicleTypes.map(async (vType) => {
-//               //     // 1. Using your configured api instance. The base url is automatically prepended.
-//               //     // 2. Your request interceptor injects the Bearer Token automatically.
-//               //     const response = await api.post('/rides/estimate/', {
-//               //       pickup: {
-//               //         latitude: locationData.latitude,
-//               //         longitude: locationData.longitude,
-//               //       },
-//               //       dropoff: {
-//               //         latitude: destinationCoords.latitude,
-//               //         longitude: destinationCoords.longitude,
-//               //       },
-//               //       vehicle_type: vType,
-//               //     });
-              
-//               //     // Axios resolves the promise directly with the response schema when successful.
-//               //     // Non-2xx status codes automatically throw errors, handling '!response.ok' for you.
-//               //     return { type: vType, data: response.data };
-//               //   });
-              
-//               //   const estimatesResults = await Promise.all(estimatePromises);
-                
-//               //   // Map outcomes into a readable map for availableRidesScreen
-//               //   const fareEstimatesBreakdown = {};
-//               //   estimatesResults.forEach(res => {
-//               //     fareEstimatesBreakdown[res.type] = res.data;
-//               //   });
-              
-//               //   // Create navigation params object passing the live endpoints calculation
-//               //   const navigationParams = {
-//               //     rideType: selectedTabIndex === 1 ? "solo" : "sharing",
-//               //     numberOfChairs: selectedTabIndex === 2 ? numberOfChairs : 1,
-//               //     pickupAddress: pickupAddress,
-//               //     destinationAddress: destinationAddress,
-//               //     lat: locationData.latitude.toString(),
-//               //     lng: locationData.longitude.toString(),
-//               //     destLat: destinationCoords?.latitude?.toString(),
-//               //     destLng: destinationCoords?.longitude?.toString(),
-//               //     locationData: JSON.stringify(locationData),
-//               //     fareEstimates: JSON.stringify(fareEstimatesBreakdown) // JSON format containing calculated breakdown
-//               //   };
-                
-//               //   console.log('Navigation params with live calculations:', navigationParams);
-//               //   navigation.push("availableRides/availableRidesScreen", navigationParams);
-//               // } catch (error) {
-//               //   console.log("API estimation fetch failed:", error);
-//               //   Alert.alert(
-//               //     "Calculation Error", 
-//               //     "Unable to compute fare estimates from your location. Please check server connections and try again."
-//               //   );
-//               // }
+//               setIsProcessing(true); 
+
 //               try {
-//                 // 1. Guard check: Make sure coordinates exist before making network requests
 //                 if (!locationData?.latitude || !destinationCoords?.latitude) {
-//                   console.error("Missing pickup or dropoff coordinates.");
-//                   return;
+//                    console.error("Missing pickup or dropoff coordinates.");
+//                    return;
 //                 }
-              
-//                 const vehicleTypes = ['economy', 'comfort', 'premium', 'xl'];
-                
+
+//                 // Backend setup implementation injected here
+//                 const vehicleTypes = VEHICLE_TYPE_KEYS;
 //                 const estimatePromises = vehicleTypes.map(async (vType) => {
-//                   // Force coordinates to numeric floating values to satisfy Django's FloatField serializer
 //                   const cleanPayload = {
-//                     pickup: {
-//                       latitude: parseFloat(locationData.latitude),
-//                       longitude: parseFloat(locationData.longitude),
-//                     },
-//                     dropoff: {
-//                       latitude: parseFloat(destinationCoords.latitude),
-//                       longitude: parseFloat(destinationCoords.longitude),
-//                     },
+//                     pickup: { latitude: parseFloat(locationData.latitude), longitude: parseFloat(locationData.longitude) },
+//                     dropoff: { latitude: parseFloat(destinationCoords.latitude), longitude: parseFloat(destinationCoords.longitude) },
 //                     vehicle_type: vType,
 //                   };
-              
-//                   // Replace '/rides/estimate/' with your exact route string if needed
 //                   const response = await api.post('/rides/estimate/', cleanPayload);
 //                   return { type: vType, data: response.data };
 //                 });
-              
+
 //                 const estimatesResults = await Promise.all(estimatePromises);
                 
 //                 const fareEstimatesBreakdown = {};
-//                 estimatesResults.forEach(res => {
-//                   fareEstimatesBreakdown[res.type] = res.data;
-//                 });
-              
+//                 estimatesResults.forEach(res => { fareEstimatesBreakdown[res.type] = res.data; });
+
 //                 const navigationParams = {
-//                   rideType: selectedTabIndex === 1 ? "solo" : "sharing",
 //                   numberOfChairs: selectedTabIndex === 2 ? numberOfChairs : 1,
 //                   pickupAddress: pickupAddress,
 //                   destinationAddress: destinationAddress,
@@ -1053,123 +751,36 @@
 //                   destLat: destinationCoords?.latitude?.toString(),
 //                   destLng: destinationCoords?.longitude?.toString(),
 //                   locationData: JSON.stringify(locationData),
-//                   fareEstimates: JSON.stringify(fareEstimatesBreakdown)
+//                   fareEstimates: JSON.stringify(fareEstimatesBreakdown),
+//                   ride_type: selectedRideType
 //                 };
                 
-//                 console.log('Navigation params with live calculations:', navigationParams);
-//                 navigation.push("availableRides/availableRidesScreen", navigationParams);
-              
+//                 router.push({
+//                   pathname: "availableRides/availableRidesScreen",
+//                   params: navigationParams
+//                 });
+
 //               } catch (error) {
-//                 // If the server returns a 400 Bad Request, this will log the exact validation messages from Django
-//                 if (error.response) {
-//                   console.error("Validation error details from Django:", error.response.status, error.response.data);
-//                 } else {
-//                   console.error("Network error message:", error.message);
-//                 }
+//                 Alert.alert("Error", "Could not fetch ride estimates. Please try again.");
+//                 console.error("CRITICAL ERROR:", error);
+//               } finally {
+//                 setIsProcessing(false); 
 //               }
+
 //             } else {
 //               setpickAlert(true);
-//               setTimeout(() => {
-//                 setpickAlert(false);
-//               }, 2000);
+//               setTimeout(() => setpickAlert(false), 2000);
 //             }
 //           }}
 //         >
-//           <Text style={styles.confirmButtonText}>
-//             Confirm {selectedTabIndex === 1 ? "Solo" : "Sharing"}
-//           </Text>
-//         </TouchableOpacity> */}
-
-// <TouchableOpacity
-//   style={[
-//     styles.confirmButton,
-//     // Add isProcessing to the disabled condition
-//     (isProcessing || !destinationAddress || !pickupAddress || pickupAddress === "Getting your location..." || pickupAddress === "Unable to get location" || !destinationCoords) && styles.disabledButton
-//   ]}
-//   disabled={isProcessing || !destinationAddress || !pickupAddress || pickupAddress === "Getting your location..." || pickupAddress === "Unable to get location" || !destinationCoords}
-//   onPress={async () => {
-//     console.log("DEBUG: Current location state:", currentLocation);
-//     if (!currentLocation) {
-//       Alert.alert("Error", "Location is still loading. Please wait.");
-//       return;
-//   }
-//   const locationData = currentLocation;
-//     console.log("DEBUG: locationData is:", locationData);
-//     // Basic validation check
-//     if (pickupAddress && destinationAddress && pickupAddress !== "Getting your location..." && pickupAddress !== "Unable to get location" && destinationCoords) {
-      
-//       setIsProcessing(true); // 1. Start loading state
-
-//       try {
-//         if (!locationData?.latitude || !destinationCoords?.latitude) {
-//            console.error("Missing pickup or dropoff coordinates.");
-//            return;
-//         }
-
-//         const vehicleTypes = ['economy', 'comfort', 'premium', 'xl'];
-//         const estimatePromises = vehicleTypes.map(async (vType) => {
-//           const cleanPayload = {
-//             pickup: { latitude: parseFloat(locationData.latitude), longitude: parseFloat(locationData.longitude) },
-//             dropoff: { latitude: parseFloat(destinationCoords.latitude), longitude: parseFloat(destinationCoords.longitude) },
-//             vehicle_type: vType,
-//           };
-//           const response = await api.post('/rides/estimate/', cleanPayload);
-//           return { type: vType, data: response.data };
-//         });
-
-//         const estimatesResults = await Promise.all(estimatePromises);
-        
-//         const fareEstimatesBreakdown = {};
-//         estimatesResults.forEach(res => { fareEstimatesBreakdown[res.type] = res.data; });
-
-//         const navigationParams = {
-//           // rideType: selectedTabIndex === 1 ? "solo" : "sharing",
-//           numberOfChairs: selectedTabIndex === 2 ? numberOfChairs : 1,
-//           pickupAddress: pickupAddress,
-//           destinationAddress: destinationAddress,
-//           lat: locationData.latitude.toString(),
-//           lng: locationData.longitude.toString(),
-//           destLat: destinationCoords?.latitude?.toString(),
-//           destLng: destinationCoords?.longitude?.toString(),
-//           locationData: JSON.stringify(locationData),
-//           fareEstimates: JSON.stringify(fareEstimatesBreakdown),
-//           ride_type: selectedRideType
-//         };
-        
-        
-//         router.push({
-//           pathname: "availableRides/availableRidesScreen",
-//           params: navigationParams
-//       });
-
-//       } catch (error) {
-//         if (error.response) {
-//           console.error("Validation error details from Django:", error.response.status, error.response.data);
-//         } else {
-//           console.error("Network error message:", error.message);
-//         }
-//         Alert.alert("Error", "Could not fetch ride estimates. Please try again.");
-//         console.error("CRITICAL ERROR:", error);
-//       } finally {
-//         setIsProcessing(false); // 2. Stop loading state (this runs on success AND error)
-//       }
-
-//     } else {
-//       setpickAlert(true);
-//       setTimeout(() => setpickAlert(false), 2000);
-//     }
-//   }}
-// >
-//   {/* UX Tip: Show an indicator inside the button when processing */}
-//   {isProcessing ? (
-//      <ActivityIndicator color="white" />
-//   ) : (
-//      <Text style={styles.confirmButtonText}>
-//        Confirm {selectedTabIndex === 1 ? "Solo" : "Sharing"}
-//      </Text>
-//   )}
-// </TouchableOpacity>
-
+//           {isProcessing ? (
+//              <ActivityIndicator color="white" />
+//           ) : (
+//              <Text style={styles.confirmButtonText}>
+//                Confirm {selectedTabIndex === 1 ? "Solo" : "Sharing"}
+//              </Text>
+//           )}
+//         </TouchableOpacity>
 //       </View>
 //     );
 //   };
@@ -1179,12 +790,12 @@
 //       <View style={styles.header}>
 //         <View style={styles.profileContainer}>
 //           <Image
-//             source={require("../../../assets/images/user/user1.jpeg")}
+//             source={avatarUrl ? { uri: avatarUrl } : require("../../../assets/images/user/user1.jpeg")}
 //             style={styles.profileImage}
 //           />
 //           <View style={styles.welcomeContainer}>
 //             <Text style={styles.welcomeText}>Welcome back,</Text>
-//             <Text style={styles.userName}>John Doe</Text>
+//             <Text style={styles.userName}>{firstName}</Text>
 //           </View>
 //         </View>
         
@@ -1208,6 +819,7 @@
 //           mapRef={mapRef}
 //           heading={heading}
 //           nearbyCars={nearbyCars}
+//           routeCoordinates={routeCoordinates}
 //         />
 //         {rideSelectionCard()}
 //       </View>
@@ -1230,6 +842,22 @@
 //   Map: {
 //     width: '100%',
 //     height: '100%',
+//   },
+//   currentLocationDotOuter: {
+//     width: 26,
+//     height: 26,
+//     borderRadius: 13,
+//     backgroundColor: 'rgba(255, 140, 0, 0.2)',
+//     alignItems: 'center',
+//     justifyContent: 'center',
+//   },
+//   currentLocationDotInner: {
+//     width: 16,
+//     height: 16,
+//     borderRadius: 8,
+//     backgroundColor: Colors.secondaryColor,
+//     borderWidth: 2,
+//     borderColor: Colors.whiteColor,
 //   },
 //   simpleMarker: {
 //     width: 38,
@@ -1470,7 +1098,6 @@
 // });
 
 
-
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useIsFocused } from "@react-navigation/native";
 import * as Location from 'expo-location';
@@ -1487,9 +1114,10 @@ import {
   TextInput,
   TouchableOpacity,
   TouchableWithoutFeedback,
-  View
+  View,
+  Platform
 } from "react-native";
-import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
+import MapView, { Marker, PROVIDER_GOOGLE ,Callout} from 'react-native-maps';
 import MapViewDirections from 'react-native-maps-directions';
 import Ionicons from "react-native-vector-icons/Ionicons";
 import { API_HOST } from "../../../constants/apiConfig";
@@ -1547,13 +1175,217 @@ function generateRandomDriverLocation(baseCoords, index) {
 }
 
 const MAP_ZOOM_DELTA = 0.007;
+// const MapSection = ({
+//   currentLocation,
+  // destinationCoords,
+  // showMap,
+  // mapRef,
+  // heading,
+//   avatarUrl,
+//   // nearbyCars = []
+// }) => {
+
+//   useEffect(() => {
+//     if (showMap && currentLocation && !destinationCoords && mapRef.current) {
+//       mapRef.current.animateToRegion({
+//         latitude: currentLocation.latitude,
+//         longitude: currentLocation.longitude,
+//         latitudeDelta: MAP_ZOOM_DELTA,
+//         longitudeDelta: MAP_ZOOM_DELTA,
+//       }, 1000); 
+//     }
+//   }, [currentLocation, destinationCoords, showMap]);
+  
+//   if (!showMap || !currentLocation) {
+//     return null;
+//   }
+  
+//   return (
+//     <View style={{ flex: 1 }}>
+//       <MapView
+//         ref={mapRef}
+//         provider={PROVIDER_GOOGLE}
+//         style={styles.Map}
+//         customMapStyle={customMapTheme}
+//         initialRegion={{
+//           latitude: currentLocation.latitude,
+//           longitude: currentLocation.longitude,
+//           latitudeDelta: LIVE_TRACKING_DELTA,
+//           longitudeDelta: LIVE_TRACKING_DELTA,
+//         }}
+//       >
+//         <Marker
+//           coordinate={{
+//             latitude: currentLocation.latitude,
+//             longitude: currentLocation.longitude,
+//           }}
+//           anchor={{ x: 0.5, y: 1 }} // Keeps the pin tip exactly on the GPS coordinate
+//         >
+//           <View style={styles.customMarkerWrap}>
+//             <View style={styles.markerOuterRing}>
+//               <View style={styles.markerInnerRing}>
+//                 {avatarUrl ? (
+//                   <Image source={{ uri: avatarUrl }} style={styles.markerProfileImg} />
+//                 ) : (
+//                   <Ionicons name="person" size={26} color={Colors.primaryColor} />
+//                 )}
+//               </View>
+//             </View>
+//             <View style={styles.markerTriangle} />
+//           </View>
+//         </Marker>
+        
+        
+//         {destinationCoords && (
+//           <Marker
+//             coordinate={destinationCoords}
+//             image={require("../../../assets/images/destination.png")}
+//             anchor={{ x: 0.5, y: 0.8 }}
+//             flat={true}
+//           />
+//         )}
+
+//         {destinationCoords && (
+//           <MapViewDirections
+//             origin={currentLocation}
+//             destination={destinationCoords}
+//             apikey={GOOGLE_MAPS_API_KEY}
+//             strokeWidth={5}
+//             strokeColor='#1A202C'
+//             onReady={(result) => {
+//               mapRef.current.fitToCoordinates(
+//                 result.coordinates,
+//                 {
+//                   edgePadding: {
+//                     top: 100,
+//                     right: 50,
+//                     bottom: 300,
+//                     left: 50,
+//                   },
+//                   animated: true,
+//                 }
+//               );
+//             }}
+//             onError={(error) => {
+//               console.log(error);
+//             }}
+//           />
+//         )}
+//       </MapView>
+//     </View>
+//   );
+// };
+
+// const MapSection = ({
+//   currentLocation,
+//   destinationCoords,
+//   showMap,
+//   mapRef,
+//   heading,
+//   avatarUrl, // Added this prop to receive the profile image
+//   nearbyCars = []
+// }) => {
+
+//   useEffect(() => {
+//     if (showMap && currentLocation && !destinationCoords && mapRef.current) {
+//       mapRef.current.animateToRegion({
+//         latitude: currentLocation.latitude,
+//         longitude: currentLocation.longitude,
+//         latitudeDelta: MAP_ZOOM_DELTA,
+//         longitudeDelta: MAP_ZOOM_DELTA,
+//       }, 1000); 
+//     }
+//   }, [currentLocation, destinationCoords, showMap]);
+  
+//   // If the device's GPS is off, currentLocation is null, and the map will disappear.
+//   if (!showMap || !currentLocation) {
+//     return null;
+//   }
+  
+//   return (
+//     <View style={{ flex: 1 }}>
+//       <MapView
+//         ref={mapRef}
+//         provider={PROVIDER_GOOGLE}
+//         style={styles.Map}
+//         customMapStyle={customMapTheme}
+//         initialRegion={{
+//           latitude: currentLocation.latitude,
+//           longitude: currentLocation.longitude,
+//           latitudeDelta: LIVE_TRACKING_DELTA,
+//           longitudeDelta: LIVE_TRACKING_DELTA,
+//         }}
+//       >
+//         {/* Pickup Marker (Dynamic Profile) */}
+//         <Marker
+//           coordinate={{
+//             latitude: currentLocation.latitude,
+//             longitude: currentLocation.longitude,
+//           }}
+//           anchor={{ x: 0.5, y: 1 }} // Keeps the pin tip exactly on the GPS coordinate
+//         >
+//           <View style={styles.customMarkerWrap}>
+//             <View style={styles.markerOuterRing}>
+//               <View style={styles.markerInnerRing}>
+//                 {avatarUrl ? (
+//                   <Image source={{ uri: avatarUrl }} style={styles.markerProfileImg} />
+//                 ) : (
+//                   <Ionicons name="person" size={26} color={Colors.primaryColor} />
+//                 )}
+//               </View>
+//             </View>
+//             <View style={styles.markerTriangle} />
+//           </View>
+//         </Marker>
+        
+//         {/* Destination Marker (Your Original Image) */}
+//         {destinationCoords && (
+//           <Marker
+//             coordinate={destinationCoords}
+//             image={require("../../../assets/images/destination.png")}
+//             anchor={{ x: 0.5, y: 0.8 }}
+//             flat={true}
+//           />
+//         )}
+
+//         {/* Route Path Line */}
+//         {destinationCoords && (
+//           <MapViewDirections
+//             origin={currentLocation}
+//             destination={destinationCoords}
+//             apikey={GOOGLE_MAPS_API_KEY}
+//             strokeWidth={5}
+//             strokeColor='#1A202C'
+//             precision="high"
+//             onReady={(result) => {
+//               mapRef.current.fitToCoordinates(
+//                 result.coordinates,
+//                 {
+//                   edgePadding: { top: 120, right: 50, bottom: 350, left: 50 },
+//                   animated: true,
+//                 }
+//               );
+//             }}
+//             onError={(error) => {
+//               // This is what prints the API error to your console
+//               console.warn("Routing Error (Directions API):", error);
+//             }}
+//           />
+//         )}
+//       </MapView>
+//     </View>
+//   );
+// };
+
 const MapSection = ({
   currentLocation,
   destinationCoords,
   showMap,
   mapRef,
   heading,
-  nearbyCars = []
+  avatarUrl, 
+  nearbyCars = [],
+  pickupAddress // <-- ADD THIS PROP
 }) => {
 
   useEffect(() => {
@@ -1585,39 +1417,21 @@ const MapSection = ({
           longitudeDelta: LIVE_TRACKING_DELTA,
         }}
       >
+        {/* Pickup Marker (Red Pulse Dot) */}
         <Marker
           coordinate={{
             latitude: currentLocation.latitude,
             longitude: currentLocation.longitude,
           }}
-          flat={true}
-          rotation={heading}
-          anchor={{ x: 0.5, y: 1 }}
+          anchor={{ x: 0.5, y: 0.5 }}
+          zIndex={999}
         >
-          <Image 
-            source={require("../../../assets/images/car.png")} 
-            style={{ width: 42, height: 42, resizeMode: 'contain' }}
-          />
+          <View style={styles.currentLocationDotOuter}>
+            <View style={styles.currentLocationDotInner} />
+          </View>
         </Marker>
         
-        {nearbyCars.map((car) => (
-          <Marker
-            key={car.id}
-            coordinate={{
-              latitude: car.latitude,
-              longitude: car.longitude,
-            }}
-            flat={true}
-            rotation={car.heading}
-            anchor={{ x: 0.5, y: 0.5 }} 
-          >
-            <Image 
-              source={require("../../../assets/images/car.png")} 
-              style={{ width: 40, height: 40, resizeMode: 'contain' }}
-            />
-          </Marker>
-        ))}
-
+        {/* Destination Marker */}
         {destinationCoords && (
           <Marker
             coordinate={destinationCoords}
@@ -1627,29 +1441,26 @@ const MapSection = ({
           />
         )}
 
+        {/* Route Path Line */}
         {destinationCoords && (
           <MapViewDirections
             origin={currentLocation}
             destination={destinationCoords}
             apikey={GOOGLE_MAPS_API_KEY}
             strokeWidth={5}
-            strokeColor='#1A202C'
+            strokeColor='#000000'
+            precision="high"
             onReady={(result) => {
               mapRef.current.fitToCoordinates(
                 result.coordinates,
                 {
-                  edgePadding: {
-                    top: 100,
-                    right: 50,
-                    bottom: 300,
-                    left: 50,
-                  },
+                  edgePadding: { top: 120, right: 50, bottom: 350, left: 50 },
                   animated: true,
                 }
               );
             }}
             onError={(error) => {
-              console.log(error);
+              console.warn("Routing Error (Directions API):", error);
             }}
           />
         )}
@@ -1657,6 +1468,7 @@ const MapSection = ({
     </View>
   );
 };
+
 
 const HomeScreen = () => {
   const navigation = useNavigation();
@@ -1672,6 +1484,7 @@ const HomeScreen = () => {
   const [currentLocation, setCurrentLocation] = useState(null);
   const [numberOfChairs, setNumberOfChairs] = useState(1);
   const mapRef = useRef(null);
+  const searchTimeoutRef = useRef(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [locationModalVisible, setLocationModalVisible] = useState(false);
   const [destinationModalVisible, setDestinationModalVisible] = useState(false); 
@@ -1685,6 +1498,8 @@ const HomeScreen = () => {
   const [previousLocation, setPreviousLocation] = useState(null);
   const [heading, setHeading] = useState(0);
   const [nearbyCars, setNearbyCars] = useState([]);
+  const [serviceUnavailableVisible, setServiceUnavailableVisible] = useState(false);
+  const [serviceUnavailableMessage, setServiceUnavailableMessage] = useState("");
 
   // Integrate Profile Avatar exactly into existing UI
   const avatarUrl = profileData?.profile_photo
@@ -1732,9 +1547,10 @@ const HomeScreen = () => {
       if (addressFor === "pickup") {
         setPickupAddress(address);
         showAddressAlert("Pickup", address);
-      } else {
+      }
+       else {
         setDestinationAddress(address);
-        showAddressAlert("Destination", address);
+      //   showAddressAlert("Destination", address);
       }
     }
   }, [address, addressFor, isFocused]);
@@ -1834,11 +1650,52 @@ const HomeScreen = () => {
     }
   };
 
-  const searchLocation = async (text, isDestination = false) => {
+  // const searchLocation = async (text, isDestination = false) => {
+  //   if (isDestination) {
+  //     setDestinationSearchText(text);
+  //   } else {
+  //     setSearchText(text);
+  //   }
+
+  //   if (text.length < 2) {
+  //     if (isDestination) {
+  //       setDestinationSearchResults([]);
+  //     } else {
+  //       setSearchResults([]);
+  //     }
+  //     return;
+  //   }
+
+  //   try {
+  //     const response = await api.get('/rides/places/autocomplete/', {
+  //       params: {
+  //         input: text,
+  //         latitude: currentLocation?.latitude,
+  //         longitude: currentLocation?.longitude,
+  //       },
+  //     });
+  //     const data = response.data;
+
+  //     if (isDestination) {
+  //       setDestinationSearchResults(data.predictions || []);
+  //     } else {
+  //       setSearchResults(data.predictions || []);
+  //     }
+  //   } catch (error) {
+  //     console.log("Search error:", error);
+  //   }
+  // };
+
+
+  const searchLocation = (text, isDestination = false) => {
     if (isDestination) {
       setDestinationSearchText(text);
     } else {
       setSearchText(text);
+    }
+
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
     }
 
     if (text.length < 2) {
@@ -1850,25 +1707,46 @@ const HomeScreen = () => {
       return;
     }
 
-    try {
-      const response = await api.get('/rides/places/autocomplete/', {
-        params: {
-          input: text,
-          latitude: currentLocation?.latitude,
-          longitude: currentLocation?.longitude,
-        },
-      });
-      const data = response.data;
+    searchTimeoutRef.current = setTimeout(async () => {
+      try {
+        const response = await api.get('/rides/places/autocomplete/', {
+          params: {
+            input: text,
+            latitude: currentLocation?.latitude,
+            longitude: currentLocation?.longitude,
+          },
+        });
+        
+        const data = response.data;
+        console.log("Autocomplete Raw Data:", JSON.stringify(data)); // <-- Debug log
+        
+        // Aggressively search for the array
+        let results = [];
+        if (Array.isArray(data)) {
+          results = data;
+        } else if (data.predictions && Array.isArray(data.predictions)) {
+          results = data.predictions;
+        } else if (data.results && Array.isArray(data.results)) {
+          results = data.results;
+        } else if (data.data && Array.isArray(data.data)) {
+          results = data.data; 
+        } else {
+          // Fallback: Find the first array inside the response object
+          const firstArray = Object.values(data).find(val => Array.isArray(val));
+          if (firstArray) results = firstArray;
+        }
 
-      if (isDestination) {
-        setDestinationSearchResults(data.predictions || []);
-      } else {
-        setSearchResults(data.predictions || []);
+        if (isDestination) {
+          setDestinationSearchResults(results);
+        } else {
+          setSearchResults(results);
+        }
+      } catch (error) {
+        console.log("Search error:", error);
       }
-    } catch (error) {
-      console.log("Search error:", error);
-    }
+    }, 500); 
   };
+
 
   const selectLocation = async (placeId, description, isDestination = false) => {
     try {
@@ -1889,7 +1767,7 @@ const HomeScreen = () => {
           setDestinationModalVisible(false);
           setDestinationSearchText("");
           setDestinationSearchResults([]);
-          showAddressAlert("Destination", description);
+          // showAddressAlert("Destination", description);
         } else {
           setPickupAddress(description);
           setCurrentLocation({
@@ -2140,7 +2018,27 @@ const HomeScreen = () => {
                    console.error("Missing pickup or dropoff coordinates.");
                    return;
                 }
+///////////////////////////////////////////////////////////////////////////////////////serviceability check
+                const serviceResponse = await api.get('/serviceability/check/', { // Ensure this matches your Django URL route prefix
+                  params: {
+                    pickup_lat: locationData.latitude,
+                    pickup_lng: locationData.longitude,
+                    dest_lat: destinationCoords.latitude,
+                    dest_lng: destinationCoords.longitude
+                  }
+                });
 
+                // If outside service area, stop and show the custom unavailable modal
+                if (serviceResponse.data && serviceResponse.data.serviceable === false) {
+                  setServiceUnavailableMessage(
+                    serviceResponse.data.message || "No rides are available on this route right now."
+                  );
+                  setServiceUnavailableVisible(true);
+                  setIsProcessing(false);
+                  return; // Exit early!
+                }
+
+/////////////////////////////////////////////////////////////////////////////////////////////
                 // Backend setup implementation injected here
                 const vehicleTypes = VEHICLE_TYPE_KEYS;
                 const estimatePromises = vehicleTypes.map(async (vType) => {
@@ -2152,7 +2050,7 @@ const HomeScreen = () => {
                   const response = await api.post('/rides/estimate/', cleanPayload);
                   return { type: vType, data: response.data };
                 });
-
+                
                 const estimatesResults = await Promise.all(estimatePromises);
                 
                 const fareEstimatesBreakdown = {};
@@ -2224,10 +2122,61 @@ const HomeScreen = () => {
     );
   };
 
+  const serviceUnavailableModal = () => {
+    return (
+      <Modal
+        visible={serviceUnavailableVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setServiceUnavailableVisible(false)}
+      >
+        <View style={styles.unavailableOverlay}>
+          <View style={styles.unavailableCard}>
+            <View style={styles.unavailablePinWrap}>
+              <Ionicons name="location" size={44} color={Colors.whiteColor} />
+            </View>
+            <Text style={styles.unavailableTitle}>Oops, service unavailable</Text>
+            <Text style={styles.unavailableMessage}>{serviceUnavailableMessage}</Text>
+
+            <TouchableOpacity
+              style={styles.unavailablePrimaryButton}
+              activeOpacity={0.8}
+              onPress={() => setServiceUnavailableVisible(false)}
+            >
+              <Text style={styles.unavailablePrimaryButtonText}>Notify me</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.unavailableSecondaryButton}
+              activeOpacity={0.8}
+              onPress={() => {
+                setServiceUnavailableVisible(false);
+                setDestinationCoords(null);
+                setDestinationAddress("");
+                setDestinationModalVisible(true);
+              }}
+            >
+              <Text style={styles.unavailableSecondaryButtonText}>Change location</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    );
+  };
+
   return (
     <View style={{ flex: 1, backgroundColor: Colors.bodyBackColor }}>
       <View style={{ flex: 1 }}>
         {header()}
+        {/* <MapSection
+          currentLocation={currentLocation}
+          destinationCoords={destinationCoords}
+          showMap={showMap}
+          mapRef={mapRef}
+          heading={heading}
+          nearbyCars={nearbyCars}
+          avatarUrl={avatarUrl} 
+        /> */}
         <MapSection
           currentLocation={currentLocation}
           destinationCoords={destinationCoords}
@@ -2235,12 +2184,15 @@ const HomeScreen = () => {
           mapRef={mapRef}
           heading={heading}
           nearbyCars={nearbyCars}
+          avatarUrl={avatarUrl} 
+          pickupAddress={pickupAddress} // <-- ADD THIS LINE
         />
         {rideSelectionCard()}
       </View>
       {pickAddressMessage()}
       {pickupLocationModal()}
       {destinationLocationModal()}
+      {serviceUnavailableModal()}
     </View>
   );
 };
@@ -2493,5 +2445,219 @@ const styles = StyleSheet.create({
     ...Fonts.blackColor14Medium,
     marginLeft: 10,
     flex: 1,
+  },
+
+  // customMarkerWrap: {
+  //   alignItems: 'center',
+  //   justifyContent: 'flex-end',
+  // },
+  // markerOuterRing: {
+  //   width: 54,
+  //   height: 54,
+  //   borderRadius: 27,
+  //   backgroundColor: Colors.primaryColor, // Uses your app's main color theme
+  //   justifyContent: 'center',
+  //   alignItems: 'center',
+  //   ...CommonStyles.shadow, // Reuses your existing shadow token
+  // },
+  // markerInnerRing: {
+  //   width: 46,
+  //   height: 46,
+  //   borderRadius: 23,
+  //   backgroundColor: Colors.whiteColor, // Clean white border separation
+  //   justifyContent: 'center',
+  //   alignItems: 'center',
+  //   overflow: 'hidden',
+  // },
+  // markerProfileImg: {
+  //   width: '100%',
+  //   height: '100%',
+  //   resizeMode: 'cover',
+  // },
+  // markerTriangle: {
+  //   width: 0,
+  //   height: 0,
+  //   backgroundColor: "transparent",
+  //   borderStyle: "solid",
+  //   borderLeftWidth: 10,
+  //   borderRightWidth: 10,
+  //   borderTopWidth: 16,
+  //   borderLeftColor: "transparent",
+  //   borderRightColor: "transparent",
+  //   borderTopColor: Colors.primaryColor, // Matches the outer ring color
+  //   marginTop: -2, // Pulls the triangle up slightly to overlap seamlessly with the circle
+  // },
+
+  /* --- PICKUP PULSE DOT (red, matches reference halo-dot design) --- */
+  pulseDotOuter: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: Colors.secondaryColor, // soft red halo
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  pulseDotInner: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: Colors.secondaryColor,
+    borderWidth: 2,
+    borderColor: Colors.whiteColor,
+  },
+
+  /* --- MARKER STYLES --- */
+  customMarkerWrap: {
+    // width: 60,       // Fixed width prevents horizontal clipping on iOS
+    // height: 75,      // Fixed height (54px ring + 16px triangle + padding) prevents vertical clipping
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+  },
+  markerOuterRing: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: Colors.primaryColor,
+    justifyContent: 'center',
+    alignItems: 'center',
+    ...CommonStyles.shadow,
+  },
+  markerInnerRing: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: Colors.whiteColor,
+    justifyContent: 'center',
+    alignItems: 'center',
+    overflow: 'hidden',
+  },
+  markerProfileImg: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  markerTriangle: {
+    width: 0,
+    height: 0,
+    backgroundColor: "transparent",
+    borderStyle: "solid",
+    borderLeftWidth: 10,
+    borderRightWidth: 10,
+    borderTopWidth: 16,
+    borderLeftColor: "transparent",
+    borderRightColor: "transparent",
+    borderTopColor: Colors.primaryColor,
+    marginTop: -2, 
+  },
+
+  /* --- CALLOUT (POP-UP) STYLES --- */
+  calloutContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 250, // Gives the text room to breathe
+  },
+  calloutBubble: {
+    backgroundColor: Colors.whiteColor,
+    paddingHorizontal: Sizes.fixPadding,
+    paddingVertical: Sizes.fixPadding - 3.0,
+    borderRadius: Sizes.fixPadding - 2.0,
+    ...CommonStyles.shadow,
+    elevation: 4,
+  },
+  calloutText: {
+    ...Fonts.blackColor14Medium,
+    textAlign: 'center',
+  },
+  calloutArrow: {
+    width: 0,
+    height: 0,
+    backgroundColor: "transparent",
+    borderStyle: "solid",
+    borderLeftWidth: 8,
+    borderRightWidth: 8,
+    borderTopWidth: 10,
+    borderLeftColor: "transparent",
+    borderRightColor: "transparent",
+    borderTopColor: Colors.whiteColor,
+    marginTop: -1,
+  },
+
+  /* --- SERVICE UNAVAILABLE MODAL --- */
+  unavailableOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 30,
+  },
+  unavailableCard: {
+    width: "100%",
+    backgroundColor: Colors.whiteColor,
+    borderRadius: 18,
+    paddingVertical: 30,
+    paddingHorizontal: 22,
+    alignItems: "center",
+    ...CommonStyles.shadow,
+  },
+  unavailablePinWrap: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    backgroundColor: Colors.primaryColor,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 16,
+  },
+  unavailableTitle: {
+    ...Fonts.blackColor18SemiBold,
+    marginBottom: 6,
+    textAlign: "center",
+  },
+  unavailableMessage: {
+    ...Fonts.grayColor14Medium,
+    textAlign: "center",
+    lineHeight: 20,
+    marginBottom: 18,
+  },
+  unavailablePrimaryButton: {
+    width: "100%",
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: Colors.secondaryColor,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 10,
+  },
+  unavailablePrimaryButtonText: {
+    ...Fonts.whiteColor15SemiBold,
+  },
+  unavailableSecondaryButton: {
+    width: "100%",
+    height: 42,
+    borderRadius: 23,
+    borderWidth: 1.5,
+    borderColor: Colors.primaryColor,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  unavailableSecondaryButtonText: {
+    ...Fonts.blackColor16SemiBold,
+    color: Colors.primaryColor,
+  },
+  currentLocationDotOuter: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: 'rgba(255, 140, 0, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  currentLocationDotInner: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: Colors.secondaryColor,
+    borderWidth: 2,
+    borderColor: Colors.whiteColor,
   },
 });

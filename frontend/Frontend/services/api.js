@@ -1,8 +1,8 @@
 import axios from 'axios';
-import { Alert } from 'react-native';
 
 import * as SecureStore from 'expo-secure-store';
 import { API_BASE_URL } from '../constants/apiConfig';
+import { clearSession, redirectToLogin, refreshSession } from './authSession';
 // BASE API
 const api = axios.create({
     baseURL: API_BASE_URL, // Your Django server URL
@@ -38,36 +38,22 @@ const api = axios.create({
         originalRequest._retry = true; // Mark this request so we don't loop forever
   
         try {
-          // 1. Get the long-lived refresh token from storage
-          const refreshToken = await SecureStore.getItemAsync('refreshToken');
-          
-          if (!refreshToken) {
-            throw new Error("No refresh token available");
-          }
-  
-          // 2. Hit the token refresh endpoint (use raw axios to avoid interceptor interference)
-          const response = await axios.post(`${API_BASE_URL}/users/token/refresh/`, {
-            refresh: refreshToken,
-          });
-  
-          const newAccessToken = response.data.access;
-  
-          // 3. Save the brand new access token
-          await SecureStore.setItemAsync('userToken', newAccessToken);
-  
-          // 4. Update the authorization header of the original failed request
+          // Shared refresh helper: persists both the new access token AND
+          // the rotated refresh token, and de-dupes concurrent refresh calls
+          // with app/index.js's cold-start refresh.
+          const newAccessToken = await refreshSession();
+
+          // Update the authorization header of the original failed request
           originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
-  
-          // 5. Fire off the original request again! The user won't notice a thing.
+
+          // Fire off the original request again! The user won't notice a thing.
           return api(originalRequest);
-  
+
         } catch (refreshError) {
-          // If the refresh token itself is expired, the user MUST log in again
-          await SecureStore.deleteItemAsync('userToken');
-          await SecureStore.deleteItemAsync('refreshToken');
-          
-          Alert.alert("Session Expired", "Your session has ended. Please log in again.");
-          // Redirect to Login Screen logic here...
+          // The refresh token itself is expired/blacklisted - the user MUST
+          // log in again.
+          await clearSession();
+          redirectToLogin();
           return Promise.reject(refreshError);
         }
       }

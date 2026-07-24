@@ -14,8 +14,8 @@ import { Platform } from 'react-native';
 // https://docs.expo.dev/guides/environment-variables/
 export const Key = {
   apiKey: Platform.select({
-    ios: process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY_IOS || 'AIzaSyAHqBJa0npG2kaf1mOIMHxhTj365WbRjQQ',
-    android: process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY_ANDROID || 'AIzaSyAl1KKFiaDzCLrIbwLAtZdZTHtnklHgif0',
+    ios: process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY_IOS || 'AIzaSyCAWzTg6mHJWPF9WXqkiVvtnT41umRTarM',
+    android: process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY_ANDROID || 'AIzaSyCAWzTg6mHJWPF9WXqkiVvtnT41umRTarM',
   }),
   // Publishable key only - safe to ship in the client bundle. Must match
   // whichever Stripe account STRIPE_SECRET_KEY (backend .env) belongs to.
